@@ -97,10 +97,12 @@ describe('poketraceAggregateSource', () => {
       expect(await source(p, 'u1', { card: { market: 'EU' } }).src.fetchAggregate(KEY)).toBeNull();
       expect(await source(p, 'u1', { card: { market: undefined } }).src.fetchAggregate(KEY)).toBeNull();
     });
-    it('returns null when a currency is present and is not USD (case-insensitive)', async () => {
+    it('returns null when the currency is missing (USD is required)', async () => {
+      expect(await source(p, 'u1', { card: { currency: undefined } }).src.fetchAggregate(KEY)).toBeNull();
+    });
+    it('returns null when the currency is not USD, accepting USD case-insensitively', async () => {
       expect(await source(p, 'u1', { card: { currency: 'EUR' } }).src.fetchAggregate(KEY)).toBeNull();
       expect(await source(p, 'u1', { card: { currency: 'usd' } }).src.fetchAggregate(KEY)).not.toBeNull();
-      expect(await source(p, 'u1', { card: { currency: undefined } }).src.fetchAggregate(KEY)).not.toBeNull();
     });
   });
 
@@ -149,6 +151,23 @@ describe('poketraceAggregateSource', () => {
       });
       expect(await src.fetchAggregate(KEY)).toBeNull();
       expect(invalidated).toEqual([KEY.cardId]);
+    });
+
+    it('a 404 whose invalidation fails logs one key-free line and still returns null', async () => {
+      const lines: { level: string; msg: string; data?: Record<string, unknown> }[] = [];
+      const client: PoketraceClient = {
+        async get() { throw new PoketraceHttpError('poketrace /cards/u1: status 404', 404); },
+      };
+      const src = poketraceAggregateSource({
+        client, now: () => NOW, resolveId: async () => 'u1',
+        invalidateId: async () => { throw new Error('db down body sk-secret'); },
+        log: (level, msg, data) => lines.push({ level, msg, data }),
+      });
+      expect(await src.fetchAggregate(KEY)).toBeNull();
+      expect(lines).toHaveLength(1);
+      expect(lines[0]!.level).toBe('warn');
+      expect(lines[0]!.data).toEqual({ cardId: KEY.cardId });
+      expect(JSON.stringify(lines[0])).not.toContain('sk-secret');
     });
   });
 

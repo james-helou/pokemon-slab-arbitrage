@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+import type { Db } from '../../src/db/db.js';
 import { invalidatePoketraceId, resolvePoketraceId } from '../../src/poketrace/mapping.js';
 import type { PoketraceClient } from '../../src/poketrace/client.js';
 import { createTestDb } from '../helpers/test-db.js';
@@ -15,6 +16,22 @@ const ptCard = (over: Record<string, unknown> = {}) => ({
   id: UUID, name: 'Charizard ex', cardNumber: '199/165', set: { slug: 'sv-151', name: '151' },
   productType: 'single', variant: 'Holofoil', game: 'pokemon', market: 'US', refs: { tcgplayerId: '523456' }, ...over,
 });
+
+/**
+ * One seeded PGlite DB per test, created on first use; later calls clear the mapping cache instead of building a new
+ * DB (each one costs seconds under full-suite load). Reset with resetSharedDb() in beforeEach.
+ */
+let sharedDb: Promise<Db> | undefined;
+const resetSharedDb = () => { sharedDb = undefined; };
+async function seededDb(): Promise<Db> {
+  if (sharedDb) {
+    const db = await sharedDb;
+    await db.query('delete from card_external_ids');
+    return db;
+  }
+  sharedDb = (async () => { const db = await createTestDb(); await seedCards(db); return db; })();
+  return sharedDb;
+}
 
 function setup(opts: { tcgdex: () => Response; pt: (path: string, q?: Record<string, string>) => unknown }) {
   const ptCalls: { path: string; q?: Record<string, string> }[] = [];
@@ -49,9 +66,9 @@ describe('resolvePoketraceId', () => {
   });
 
   describe('fallback search (no TCGplayer id)', () => {
+    beforeEach(resetSharedDb);
     const run = async (data: unknown[]) => {
-      const db = await createTestDb();
-      await seedCards(db);
+      const db = await seededDb();
       const s = setup({ tcgdex: () => json(tcgdexCard()), pt: () => ({ data }) });
       const id = await resolvePoketraceId({ db, client: s.client, fetch: s.fetchFn, now: () => new Date() }, 'sv03.5-199');
       return { id, s };
@@ -88,9 +105,9 @@ describe('resolvePoketraceId', () => {
   });
 
   describe('variants', () => {
+    beforeEach(resetSharedDb);
     const run = async (data: unknown[]) => {
-      const db = await createTestDb();
-      await seedCards(db);
+      const db = await seededDb();
       const s = setup({ tcgdex: () => json(tcgdexCard(523456)), pt: () => ({ data }) });
       const id = await resolvePoketraceId({ db, client: s.client, fetch: s.fetchFn, now: () => new Date() }, 'sv03.5-199');
       const { rows } = await db.query<{ external_id: string | null; variant: string | null }>(

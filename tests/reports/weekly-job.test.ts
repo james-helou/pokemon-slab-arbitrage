@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasJobRun, recordJobRun } from '../../src/jobs/job-runs.js';
+import { claimJobRun, hasJobRun, recordJobRun, releaseJobRun } from '../../src/jobs/job-runs.js';
 import { silentLog } from '../../src/log.js';
 import { runWeeklyReportJob, type WeeklyJobDeps } from '../../src/reports/weekly-job.js';
 import { setSetting } from '../../src/settings/settings.js';
@@ -28,6 +28,28 @@ describe('job runs', () => {
     await recordJobRun(db, 'x', '2026-W40', NOW());
     await recordJobRun(db, 'x', '2026-W40', NOW());
     expect(await hasJobRun(db, 'x', '2026-W40')).toBe(true);
+  });
+
+  it('claimJobRun returns the claim time, and null when the claim is held', async () => {
+    const { db } = await setup();
+    const a = await claimJobRun(db, 'x', '2026-W40', NOW());
+    expect(a).toEqual(NOW());
+    expect(await claimJobRun(db, 'x', '2026-W40', new Date(NOW().getTime() + 60_000))).toBeNull();
+  });
+
+  it('a run releases only its own claim, not a stale-claim takeover by another run', async () => {
+    const { db } = await setup();
+    const aAt = new Date(NOW().getTime() - 61 * 60_000);
+    const a = await claimJobRun(db, 'x', '2026-W40', aAt);
+    const b = await claimJobRun(db, 'x', '2026-W40', NOW());
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    await releaseJobRun(db, 'x', '2026-W40', a!);
+    const { rows } = await db.query<{ status: string; claimed_at: Date }>('select status, claimed_at from job_runs');
+    expect(rows).toHaveLength(1);
+    expect(new Date(rows[0]!.claimed_at)).toEqual(NOW());
+    await releaseJobRun(db, 'x', '2026-W40', b!);
+    expect((await db.query('select 1 from job_runs')).rows).toHaveLength(0);
   });
 });
 

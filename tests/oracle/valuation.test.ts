@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { computeValuation, type CompPoint } from '../../src/oracle/valuation.js';
+import { computeValuation, ORACLE_VERSION, type CompPoint } from '../../src/oracle/valuation.js';
 
 const NOW = new Date('2026-10-03T12:00:00Z');
 const ago = (days: number) => new Date(NOW.getTime() - days * 86_400_000);
 const paid = (price: number, days: number): CompPoint => ({ price, soldAt: ago(days), kind: 'paid_source' });
+
+it('ORACLE_VERSION is v1.1.0 (USD-required aggregates)', () => {
+  expect(ORACLE_VERSION).toBe('v1.1.0');
+});
 
 describe('computeValuation', () => {
   it('returns null with no comps', () => {

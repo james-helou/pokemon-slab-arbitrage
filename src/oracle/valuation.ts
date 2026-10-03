@@ -1,6 +1,6 @@
 import type { CompKind } from '../domain/types.js';
 
-export const ORACLE_VERSION = 'v1.0.0';
+export const ORACLE_VERSION = 'v1.1.0';
 
 export interface CompPoint {
   price: number;
