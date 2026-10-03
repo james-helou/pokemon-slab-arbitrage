@@ -1,0 +1,58 @@
+import type { Db } from '../db/db.js';
+
+export interface CardRow {
+  id: string;
+  name: string;
+  number: string;
+  setId: string;
+  setName: string;
+  setPrintedTotal: number | null;
+}
+
+export interface CardCandidate {
+  id: string;
+  name: string;
+  number: string;
+  setPrintedTotal: number | null;
+}
+
+export async function upsertCards(db: Db, cards: CardRow[]): Promise<void> {
+  if (cards.length === 0) return;
+  const params: unknown[] = [];
+  const values = cards.map((c, i) => {
+    const b = i * 6;
+    params.push(c.id, c.name, c.number, c.setId, c.setName, c.setPrintedTotal);
+    return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6})`;
+  });
+  await db.query(
+    `insert into cards (id, name, number, set_id, set_name, set_printed_total) values ${values.join(', ')}
+     on conflict (id) do update set name = excluded.name, number = excluded.number, set_id = excluded.set_id,
+       set_name = excluded.set_name, set_printed_total = excluded.set_printed_total, updated_at = now()`,
+    params,
+  );
+}
+
+/** Cards with this number; when the listing's denominator is numeric it must equal the set's printed total. */
+export async function findCandidates(db: Db, number: string, total: string | null): Promise<CardCandidate[]> {
+  const numericTotal = total !== null && /^\d+$/.test(total) ? Number(total) : null;
+  const { rows } = await db.query<{ id: string; name: string; number: string; set_printed_total: number | null }>(
+    `select id, name, number, set_printed_total from cards
+     where upper(number) = upper($1) and language = 'en' ${numericTotal !== null ? 'and set_printed_total = $2' : ''}
+     order by id`,
+    numericTotal !== null ? [number, numericTotal] : [number],
+  );
+  return rows.map((r) => ({
+    id: r.id, name: r.name, number: r.number,
+    setPrintedTotal: r.set_printed_total === null ? null : Number(r.set_printed_total),
+  }));
+}
+
+export async function getCard(db: Db, id: string): Promise<CardRow | null> {
+  const { rows } = await db.query<Record<string, unknown>>('select * from cards where id = $1', [id]);
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    id: String(r.id), name: String(r.name), number: String(r.number), setId: String(r.set_id),
+    setName: String(r.set_name), setPrintedTotal: r.set_printed_total === null ? null : Number(r.set_printed_total),
+  };
+}
