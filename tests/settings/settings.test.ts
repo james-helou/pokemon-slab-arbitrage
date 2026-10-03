@@ -38,4 +38,21 @@ describe('settings', () => {
     await put('scanIntervalSeconds', '120');
     expect((await loadSettings(db)).scanIntervalSeconds).toBe(120);
   });
+
+  it('has slice-2 defaults and clamps them', async () => {
+    expect(DEFAULT_SETTINGS).toMatchObject({
+      disappearMissScans: 3, disappearMinPrice: 75, disappearConfirmMaxAgeHours: 24,
+      auxGetItemDailyCap: 300, sweepIntervalMinutes: 10, outcomeIntervalMinutes: 60,
+    });
+    const db = await createTestDb();
+    await setSetting(db, 'disappearMissScans', 1);
+    await setSetting(db, 'outcomeIntervalMinutes', 0);
+    await setSetting(db, 'sweepIntervalMinutes', 0);
+    await setSetting(db, 'auxGetItemDailyCap', -5);
+    const s = await loadSettings(db);
+    expect(s.disappearMissScans).toBe(2);
+    expect(s.outcomeIntervalMinutes).toBe(5);
+    expect(s.sweepIntervalMinutes).toBe(1);
+    expect(s.auxGetItemDailyCap).toBe(0);
+  });
 });

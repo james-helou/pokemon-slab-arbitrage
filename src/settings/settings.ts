@@ -21,6 +21,16 @@ export interface Settings {
   /** Queued alerts older than this are expired instead of sent. */
   maxAlertAgeMinutes: number;
   browserAgentEnabled: boolean;
+  /** Consecutive newest-first scans a listing must be missing from (inside the window) to become a disappearance suspect. */
+  disappearMissScans: number;
+  /** Suspects priced below this are marked gone without a getItem confirmation (no comp written). */
+  disappearMinPrice: number;
+  /** Suspects last seen longer ago than this are marked gone unconfirmed (sold time too uncertain for a comp). */
+  disappearConfirmMaxAgeHours: number;
+  /** Daily cap on auxiliary getItem calls (disappearance confirmations + outcome checks), on top of scanning. */
+  auxGetItemDailyCap: number;
+  sweepIntervalMinutes: number;
+  outcomeIntervalMinutes: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -39,6 +49,12 @@ export const DEFAULT_SETTINGS: Settings = {
   deliveryIntervalSeconds: 15,
   maxAlertAgeMinutes: 15,
   browserAgentEnabled: false,
+  disappearMissScans: 3,
+  disappearMinPrice: 75,
+  disappearConfirmMaxAgeHours: 24,
+  auxGetItemDailyCap: 300,
+  sweepIntervalMinutes: 10,
+  outcomeIntervalMinutes: 60,
 };
 
 /** Lower bounds for DB-loaded values that would otherwise hammer eBay or Discord. */
@@ -46,6 +62,10 @@ const MINIMUMS: Partial<Record<keyof Settings, number>> = {
   scanIntervalSeconds: 30,
   deliveryIntervalSeconds: 5,
   maxAlertAgeMinutes: 1,
+  disappearMissScans: 2,
+  auxGetItemDailyCap: 0,
+  sweepIntervalMinutes: 1,
+  outcomeIntervalMinutes: 5,
 };
 
 export async function loadSettings(db: Db): Promise<Settings> {
