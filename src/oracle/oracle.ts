@@ -23,7 +23,7 @@ function rowToValuation(r: Record<string, unknown>): Valuation {
 export async function getValuation(
   deps: OracleDeps,
   key: ValuationKey,
-  settings: Pick<Settings, 'valuationMaxAgeHours' | 'boDiscount'>,
+  settings: Pick<Settings, 'valuationMaxAgeHours' | 'boDiscount' | 'minCompCount'>,
 ): Promise<Valuation | null> {
   const { db } = deps;
   const now = deps.now();
@@ -38,7 +38,7 @@ export async function getValuation(
   for (const c of await deps.source.fetchComps(key)) {
     await db.query(
       `insert into comps (card_id, grader, grade, price, sold_at, kind, source_ref) values ($1, $2, $3, $4, $5, $6, $7)
-       on conflict (kind, source_ref) do nothing`,
+       on conflict (kind, source_ref) do update set price = excluded.price, sold_at = excluded.sold_at`,
       [key.cardId, key.grader, key.grade, c.price, c.soldAt, c.kind, c.sourceRef],
     );
   }
@@ -51,7 +51,7 @@ export async function getValuation(
   const computed = computeValuation(
     rows.map((r) => ({ price: Number(r.price), soldAt: new Date(r.sold_at), kind: r.kind })),
     now,
-    { boDiscount: settings.boDiscount },
+    { boDiscount: settings.boDiscount, minCompCount: settings.minCompCount },
   );
   if (!computed) return null;
 

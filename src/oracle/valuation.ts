@@ -27,14 +27,14 @@ function quantile(sorted: number[], p: number): number {
   return sorted[lo]! + (sorted[hi]! - sorted[lo]!) * (pos - lo);
 }
 
-export function computeValuation(comps: CompPoint[], now: Date, opts: { boDiscount: number }): ComputedValuation | null {
+export function computeValuation(comps: CompPoint[], now: Date, opts: { boDiscount: number; minCompCount: number }): ComputedValuation | null {
   const adjusted = comps.map((c) => ({
     price: c.kind === 'paid_source' ? c.price : c.price * opts.boDiscount,
-    ageDays: (now.getTime() - c.soldAt.getTime()) / DAY_MS,
+    ageDays: Math.max(0, (now.getTime() - c.soldAt.getTime()) / DAY_MS),
   }));
   const recent = adjusted.filter((a) => a.ageDays <= 14);
   const used = recent.length >= 3 ? recent : adjusted.filter((a) => a.ageDays <= 90);
-  if (used.length === 0) return null;
+  if (used.length === 0 || used.length < opts.minCompCount) return null;
 
   const prices = used.map((u) => u.price).sort((a, b) => a - b);
   const value = quantile(prices, 0.5);

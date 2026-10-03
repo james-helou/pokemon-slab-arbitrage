@@ -12,6 +12,8 @@ export interface Settings {
   /** Multiplier applied to comps whose real price may be hidden (accepted Best Offers). Not applied to paid_source. */
   boDiscount: number;
   valuationMaxAgeHours: number;
+  /** Minimum comps in the window required to produce a valuation. */
+  minCompCount: number;
   scanIntervalSeconds: number;
   browserAgentEnabled: boolean;
 }
@@ -26,6 +28,7 @@ export const DEFAULT_SETTINGS: Settings = {
   buyTaxRate: 0.07,
   boDiscount: 0.92,
   valuationMaxAgeHours: 24,
+  minCompCount: 3,
   scanIntervalSeconds: 90,
   browserAgentEnabled: false,
 };

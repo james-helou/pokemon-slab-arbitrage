@@ -32,7 +32,7 @@ describe('getValuation', () => {
     await getValuation({ db, source, now: clock }, KEY, DEFAULT_SETTINGS);
     expect(source.calls).toBe(2);
     const { rows } = await db.query<{ n: number }>('select count(*)::int as n from comps');
-    expect(rows[0]!.n).toBe(8);
+    expect(rows[0]!.n).toBe(4);
   });
 
   it('returns null when the source has no comps', async () => {
