@@ -83,11 +83,20 @@ describe('evaluateListing', () => {
     expect(getItemCalls()).toBe(0);
   });
 
-  it('marks gone listings', async () => {
+  it('marks gone listings with the reason eBay gave', async () => {
     const { db, outcome } = await run(undefined, undefined, { item: null });
     expect(outcome.status).toBe('gone');
-    const { rows } = await db.query<{ gone_at: Date | null }>('select gone_at from listings');
+    const { rows } = await db.query<{ gone_at: Date | null; gone_reason: string | null }>('select gone_at, gone_reason from listings');
     expect(rows[0]!.gone_at).not.toBeNull();
+    expect(rows[0]!.gone_reason).toBe('not_found');
+  });
+
+  it('marks sold-out listings as out_of_stock', async () => {
+    const soldOut: EbayItem = { ...ITEM, estimatedAvailabilities: [{ estimatedAvailabilityStatus: 'OUT_OF_STOCK' }] };
+    const { db, outcome } = await run(undefined, undefined, { item: soldOut });
+    expect(outcome.status).toBe('gone');
+    const { rows } = await db.query<{ gone_reason: string | null }>('select gone_reason from listings');
+    expect(rows[0]!.gone_reason).toBe('out_of_stock');
   });
 
   it('re-scores with the enriched price', async () => {

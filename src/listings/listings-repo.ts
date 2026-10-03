@@ -1,5 +1,5 @@
 import type { Db } from '../db/db.js';
-import type { Listing } from '../domain/types.js';
+import type { GoneReason, Listing } from '../domain/types.js';
 import type { MatchResult } from '../matcher/matcher.js';
 import { MATCHER_VERSION } from '../matcher/matcher.js';
 
@@ -11,7 +11,9 @@ export async function upsertListing(db: Db, l: Listing, now: Date): Promise<{ is
      on conflict (source, external_id) do update set
        title = excluded.title, price = excluded.price, shipping = excluded.shipping, image_url = excluded.image_url,
        aspects = case when excluded.aspects = '{}'::jsonb then listings.aspects else excluded.aspects end,
-       raw = excluded.raw, last_seen_at = excluded.last_seen_at
+       raw = excluded.raw, last_seen_at = excluded.last_seen_at, miss_count = 0,
+       gone_at = case when listings.gone_reason = 'window_miss' then null else listings.gone_at end,
+       gone_reason = case when listings.gone_reason = 'window_miss' then null else listings.gone_reason end
      returning (xmax = 0) as inserted`,
     [
       l.source, l.externalId, l.title, l.price, l.shipping, l.currency, l.url, l.imageUrl, l.sellerUsername,
@@ -21,10 +23,54 @@ export async function upsertListing(db: Db, l: Listing, now: Date): Promise<{ is
   return { isNew: Boolean(rows[0]!.inserted) };
 }
 
-export async function markGone(db: Db, l: Pick<Listing, 'source' | 'externalId'>, now: Date): Promise<void> {
-  await db.query(`update listings set gone_at = coalesce(gone_at, $3) where source = $1 and external_id = $2`, [
-    l.source, l.externalId, now,
-  ]);
+/**
+ * Sets gone_at once (first detection wins) and records why. A confirmed reason (out_of_stock / not_found)
+ * replaces an unconfirmed window_miss, but is never overwritten itself.
+ */
+export async function markGone(
+  db: Db,
+  l: Pick<Listing, 'source' | 'externalId'>,
+  now: Date,
+  reason: GoneReason = 'not_found',
+): Promise<void> {
+  await db.query(
+    `update listings set gone_at = coalesce(gone_at, $3),
+       gone_reason = case when gone_reason is null or gone_reason = 'window_miss' then $4 else gone_reason end
+     where source = $1 and external_id = $2`,
+    [l.source, l.externalId, now, reason],
+  );
+}
+
+/** A getItem confirmed the listing is still live: clear misses, revive an unconfirmed gone state, start the recheck cooldown. */
+export async function markSeenLive(db: Db, l: Pick<Listing, 'source' | 'externalId'>, now: Date): Promise<void> {
+  await db.query(
+    `update listings set miss_count = 0, checked_at = $3, last_seen_at = greatest(last_seen_at, $3),
+       gone_at = case when gone_reason = 'window_miss' then null else gone_at end,
+       gone_reason = case when gone_reason = 'window_miss' then null else gone_reason end
+     where source = $1 and external_id = $2`,
+    [l.source, l.externalId, now],
+  );
+}
+
+/**
+ * Newest-first scans return a window of listings whose listed_at is >= the oldest one returned (the floor).
+ * Every open listing listed strictly after the floor that this scan did not return gets miss_count + 1.
+ * Returns how many listings were bumped.
+ */
+export async function recordWindowMisses(
+  db: Db,
+  source: Listing['source'],
+  seenIds: string[],
+  windowFloor: Date,
+): Promise<number> {
+  const { rows } = await db.query(
+    `update listings set miss_count = miss_count + 1
+     where source = $1 and gone_at is null and listed_at > $2
+       and external_id not in (select jsonb_array_elements_text($3::jsonb))
+     returning external_id`,
+    [source, windowFloor, JSON.stringify(seenIds)],
+  );
+  return rows.length;
 }
 
 export async function insertMatch(

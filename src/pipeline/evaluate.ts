@@ -75,7 +75,7 @@ export async function evaluateListing(
 
   const item = await deps.ebay.getItem(listing.externalId);
   if (!item || isOutOfStock(item)) {
-    await markGone(db, listing, deps.now());
+    await markGone(db, listing, deps.now(), item ? 'out_of_stock' : 'not_found');
     return { status: 'gone', reasons: [] };
   }
   const enriched = mergeItemDetails(listing, item);
