@@ -1,0 +1,24 @@
+{
+ "cardCount": {
+  "firstEd": 103,
+  "holo": 64,
+  "normal": 351,
+  "official": 102,
+  "reverse": 0,
+  "total": 102
+ },
+ "cards": [
+  {
+   "id": "base1-4",
+   "localId": "4",
+   "name": "Charizard"
+  }
+ ],
+ "id": "base1",
+ "name": "Base Set",
+ "releaseDate": "1999-01-09",
+ "serie": {
+  "id": "base",
+  "name": "Base"
+ }
+}

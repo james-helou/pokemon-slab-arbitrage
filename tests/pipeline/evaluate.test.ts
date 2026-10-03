@@ -14,7 +14,7 @@ import { ITEM, SUMMARY, makeNewRecommendation, seedCards } from '../helpers/fixt
 
 const NOW = new Date('2026-10-03T12:00:00Z');
 const VALUATION: Valuation = {
-  cardId: 'sv3pt5-199', grader: 'PSA', grade: 10, value: 600, low: 592.5, high: 607.5, compCount: 6,
+  cardId: 'sv03.5-199', grader: 'PSA', grade: 10, value: 600, low: 592.5, high: 607.5, compCount: 6,
   newestCompAgeDays: 1, confidence: 0.893, compsSource: 'fixture', oracleVersion: 'v1.0.0', computedAt: NOW,
 };
 

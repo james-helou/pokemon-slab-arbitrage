@@ -1,0 +1,24 @@
+{
+ "cardCount": {
+  "firstEd": 0,
+  "holo": 30,
+  "normal": 0,
+  "official": 30,
+  "reverse": 0,
+  "total": 30
+ },
+ "cards": [
+  {
+   "id": "swsh12tg-TG30",
+   "localId": "TG30",
+   "name": "Duraludon VMAX"
+  }
+ ],
+ "id": "swsh12tg",
+ "name": "Silver Tempest Trainer Gallery",
+ "releaseDate": "2022-11-11",
+ "serie": {
+  "id": "swsh",
+  "name": "Sword & Shield"
+ }
+}

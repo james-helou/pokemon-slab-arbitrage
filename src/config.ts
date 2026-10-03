@@ -13,7 +13,6 @@ const schema = z.object({
   DISCORD_GUILD_ID: z.string().min(1),
   DISCORD_ALERT_CHANNEL_ID: z.string().min(1),
   DISCORD_OVERBUDGET_CHANNEL_ID: z.string().min(1),
-  POKEMONTCG_API_KEY: z.string().optional().transform((v) => v || undefined),
   COMPS_FIXTURE_PATH: z.string().default('data/comps-fixture.json'),
 });
 

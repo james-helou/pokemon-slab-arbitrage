@@ -1,0 +1,34 @@
+{
+ "cardCount": {
+  "firstEd": 0,
+  "holo": 90,
+  "normal": 135,
+  "official": 165,
+  "reverse": 158,
+  "total": 207
+ },
+ "cards": [
+  {
+   "id": "sv03.5-001",
+   "localId": "001",
+   "name": "Bulbasaur"
+  },
+  {
+   "id": "sv03.5-006",
+   "localId": "006",
+   "name": "Charizard ex"
+  },
+  {
+   "id": "sv03.5-199",
+   "localId": "199",
+   "name": "Charizard ex"
+  }
+ ],
+ "id": "sv03.5",
+ "name": "151",
+ "releaseDate": "2023-09-22",
+ "serie": {
+  "id": "sv",
+  "name": "Scarlet & Violet"
+ }
+}

@@ -1,0 +1,29 @@
+{
+ "cardCount": {
+  "firstEd": 0,
+  "holo": 280,
+  "normal": 48,
+  "official": 225,
+  "reverse": 1,
+  "total": 226
+ },
+ "cards": [
+  {
+   "id": "svp-001",
+   "localId": "001",
+   "name": "Sprigatito"
+  },
+  {
+   "id": "svp-085",
+   "localId": "085",
+   "name": "Pikachu with Grey Felt Hat"
+  }
+ ],
+ "id": "svp",
+ "name": "SVP Black Star Promos",
+ "releaseDate": "2023-03-31",
+ "serie": {
+  "id": "sv",
+  "name": "Scarlet & Violet"
+ }
+}

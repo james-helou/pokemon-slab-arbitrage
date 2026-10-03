@@ -5,7 +5,7 @@ import { DEFAULT_SETTINGS } from '../../src/settings/settings.js';
 import { createTestDb } from '../helpers/test-db.js';
 import { seedCards } from '../helpers/fixtures.js';
 
-const KEY = { cardId: 'sv3pt5-199', grader: 'PSA' as const, grade: 10 };
+const KEY = { cardId: 'sv03.5-199', grader: 'PSA' as const, grade: 10 };
 let now = new Date('2026-10-03T12:00:00Z');
 const clock = () => now;
 

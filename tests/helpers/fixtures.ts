@@ -2,7 +2,7 @@ import type { Db } from '../../src/db/db.js';
 import { upsertCards, type CardRow } from '../../src/catalog/catalog-repo.js';
 
 export const CHARIZARD_151: CardRow = {
-  id: 'sv3pt5-199', name: 'Charizard ex', number: '199', setId: 'sv3pt5', setName: '151', setPrintedTotal: 165,
+  id: 'sv03.5-199', name: 'Charizard ex', number: '199', setId: 'sv03.5', setName: '151', setPrintedTotal: 165,
 };
 
 export async function seedCards(db: Db, cards: CardRow[] = [CHARIZARD_151]): Promise<void> {
@@ -39,7 +39,7 @@ export function makeNewRecommendation(overrides: Partial<NewRecommendation> = {}
   return {
     source: 'ebay',
     externalId: 'v1|111|0',
-    cardId: 'sv3pt5-199',
+    cardId: 'sv03.5-199',
     grader: 'PSA',
     grade: 10,
     cert: '12345678',
@@ -49,7 +49,7 @@ export function makeNewRecommendation(overrides: Partial<NewRecommendation> = {}
     },
     cardSnapshot: { name: 'Charizard ex', setName: '151', number: '199' },
     valuationSnapshot: {
-      cardId: 'sv3pt5-199', grader: 'PSA', grade: 10, value: 600, low: 592.5, high: 607.5, compCount: 6,
+      cardId: 'sv03.5-199', grader: 'PSA', grade: 10, value: 600, low: 592.5, high: 607.5, compCount: 6,
       newestCompAgeDays: 1, confidence: 0.893, compsSource: 'fixture', oracleVersion: 'v1.0.0',
       computedAt: '2026-10-03T12:00:00.000Z',
     },

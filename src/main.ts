@@ -21,7 +21,7 @@ async function main() {
   log('info', 'migrations', { applied: await migrate(db, 'migrations') });
 
   // The scan loop must never run against an empty catalog (every listing would be marked evaluated as no_match).
-  if (!(await ensureCatalog(db, () => syncCatalog(db, fetch, cfg.POKEMONTCG_API_KEY, log), log))) {
+  if (!(await ensureCatalog(db, async () => (await syncCatalog(db, fetch, log)).cards, log))) {
     await db.end();
     process.exit(1);
   }

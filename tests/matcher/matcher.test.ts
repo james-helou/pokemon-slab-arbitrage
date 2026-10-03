@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CardCandidate } from '../../src/catalog/catalog-repo.js';
 import { graderFromAspect, matchListing, type CandidateLookup } from '../../src/matcher/matcher.js';
 
-const CHARIZARD: CardCandidate = { id: 'sv3pt5-199', name: 'Charizard ex', number: '199', setPrintedTotal: 165 };
+const CHARIZARD: CardCandidate = { id: 'sv03.5-199', name: 'Charizard ex', number: '199', setPrintedTotal: 165 };
 const lookupOf = (cands: CardCandidate[]): CandidateLookup => async () => cands;
 
 const ASPECTS = {
@@ -15,7 +15,7 @@ const ASPECTS = {
 describe('matchListing', () => {
   it('matches from title only with reduced confidence', async () => {
     const r = await matchListing({ title: 'PSA 10 Charizard ex 199/165 151', aspects: {} }, lookupOf([CHARIZARD]));
-    expect(r.match).toMatchObject({ cardId: 'sv3pt5-199', grader: 'PSA', grade: 10, cert: null, confidence: 0.855 });
+    expect(r.match).toMatchObject({ cardId: 'sv03.5-199', grader: 'PSA', grade: 10, cert: null, confidence: 0.855 });
     expect(r.reasons).toContain('grade_from_title');
   });
 
@@ -61,7 +61,7 @@ describe('matchListing', () => {
       { title: 'PSA 10 Charizard ex SIR', aspects: { ...ASPECTS, 'Card Number': '199/165' } },
       lookupOf([CHARIZARD]),
     );
-    expect(r.match?.cardId).toBe('sv3pt5-199');
+    expect(r.match?.cardId).toBe('sv03.5-199');
   });
 
   it('rejects a Celebrations reprint', async () => {

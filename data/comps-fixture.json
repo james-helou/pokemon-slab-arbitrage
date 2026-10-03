@@ -2,7 +2,7 @@
   "_note": "SAMPLE DATA for development only. These are not real market prices. Replace with the paid comps source in slice 2.",
   "entries": [
     {
-      "cardId": "sv3pt5-199",
+      "cardId": "sv03.5-199",
       "grader": "PSA",
       "grade": 10,
       "sales": [

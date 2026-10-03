@@ -5,6 +5,6 @@ import { syncCatalog } from './sync.js';
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL is required');
 const db = pgDb(url);
-const n = await syncCatalog(db, fetch, process.env.POKEMONTCG_API_KEY || undefined, log);
-console.log(`synced ${n} cards`);
+const r = await syncCatalog(db, fetch, log);
+console.log(`synced ${r.cards} cards; skipped sets: ${r.skippedSets.join(', ') || 'none'}`);
 await db.end();
