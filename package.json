@@ -14,6 +14,8 @@
     "catalog:sync": "tsx src/catalog/sync-cli.ts",
     "ebay:probe": "tsx src/sources/ebay/probe-cli.ts",
     "probe:local": "node --env-file=.env --import tsx src/sources/ebay/probe-cli.ts",
+    "report:weekly": "tsx src/reports/weekly-cli.ts",
+    "report:weekly:local": "node --env-file=.env --import tsx src/reports/weekly-cli.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
