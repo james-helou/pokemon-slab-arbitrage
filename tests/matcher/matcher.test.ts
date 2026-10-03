@@ -63,6 +63,56 @@ describe('matchListing', () => {
     );
     expect(r.match?.cardId).toBe('sv3pt5-199');
   });
+
+  it('rejects a Celebrations reprint', async () => {
+    const base: CardCandidate = { id: 'base1-4', name: 'Charizard', number: '4', setPrintedTotal: 102 };
+    const r = await matchListing({ title: 'Celebrations Charizard 4/102 Classic Collection PSA 10', aspects: ASPECTS }, lookupOf([base]));
+    expect(r.match).toBeNull();
+    expect(r.reasons).toContain('variant');
+  });
+
+  it('rejects when aspect grade and title grade differ', async () => {
+    const r = await matchListing({ title: 'PSA 9 Charizard ex 199/165', aspects: ASPECTS }, lookupOf([CHARIZARD]));
+    expect(r.match).toBeNull();
+    expect(r.reasons).toEqual(['grade_conflict']);
+  });
+
+  it('rejects an unrecognised aspect grader instead of trusting the title', async () => {
+    const r = await matchListing(
+      { title: 'PSA 10 Charizard ex 199/165', aspects: { ...ASPECTS, 'Professional Grader': 'ACE Grading' } },
+      lookupOf([CHARIZARD]),
+    );
+    expect(r.match).toBeNull();
+    expect(r.reasons).toEqual(['grader_unknown']);
+  });
+
+  it('rejects raw candidate listings', async () => {
+    const r = await matchListing({ title: 'Charizard ex 199/165 PSA 10 Candidate NM', aspects: {} }, lookupOf([CHARIZARD]));
+    expect(r.match).toBeNull();
+    expect(r.reasons).toContain('raw_candidate');
+    const e = await matchListing({ title: 'PSA 10 Equivalent CGC 9.5 Charizard ex 199/165', aspects: {} }, lookupOf([CHARIZARD]));
+    expect(e.match).toBeNull();
+  });
+
+  it('rejects titles naming more than one grader', async () => {
+    const r = await matchListing({ title: 'PSA 10 or CGC 9.5 Charizard ex 199/165', aspects: {} }, lookupOf([CHARIZARD]));
+    expect(r.match).toBeNull();
+    expect(r.reasons).toContain('grader_conflict');
+  });
+
+  it('matches names across punctuation', async () => {
+    const r = await matchListing({ title: 'PSA 10 Charizard-ex 199/165', aspects: ASPECTS }, lookupOf([CHARIZARD]));
+    expect(r.match?.confidence).toBe(0.95);
+  });
+
+  it('caps confidence at 0.8 when the Card Number aspect has no total', async () => {
+    const r = await matchListing(
+      { title: 'PSA 10 Charizard ex SIR', aspects: { ...ASPECTS, 'Card Number': '199' } },
+      lookupOf([CHARIZARD]),
+    );
+    expect(r.match?.confidence).toBe(0.8);
+    expect(r.reasons).toContain('number_without_total');
+  });
 });
 
 describe('graderFromAspect', () => {

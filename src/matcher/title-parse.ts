@@ -14,7 +14,9 @@ const GRADER_RE =
 const NUMBER_RE = /(?:^|[\s#(])([A-Z]{0,4}\d{1,4})\s*\/\s*([A-Z]{0,4}\d{1,4})(?!\d)/i;
 const NON_ENGLISH_RE = /\b(japanese|japan|jpn|korean|chinese|german|french|italian|spanish|portuguese|thai|indonesian)\b/i;
 const LOT_RE = /\b(lot|bundle)\b|\bx\s?\d+\b|\b\d+\s?x\b/i;
-const VARIANT_RE = /\b(1st\s*ed(ition)?|first\s*edition|shadowless|reverse\s*holo|prerelease|staff|stamped)\b/i;
+const VARIANT_RE = /\b(1st\s*ed(ition)?|first\s*edition|shadowless|reverse\s*holo|pre-?release|first\s*ed|w\s*stamp|jumbo|celebrations|classic\s*collection|staff|stamped)\b/i;
+const RAW_CANDIDATE_RE = /\b(candidate|ready|equivalent|potential)\b/i;
+const ANY_GRADER_RE = /\b(PSA|CGC|BGS|BECKETT|SGC|TAG)\b/gi;
 const NOT_AUTHENTIC_RE = /\b(proxy|custom|replica|orica|fan\s*art)\b/i;
 
 export function normalizeNumber(n: string): string {
@@ -32,6 +34,9 @@ export function parseTitle(title: string): TitleParse {
   if (LOT_RE.test(title)) flags.push('lot');
   if (VARIANT_RE.test(title)) flags.push('variant');
   if (NOT_AUTHENTIC_RE.test(title)) flags.push('not_authentic');
+  if (RAW_CANDIDATE_RE.test(title)) flags.push('raw_candidate');
+  const graders = new Set([...title.matchAll(ANY_GRADER_RE)].map((m) => toGrader(m[1]!)));
+  if (graders.size > 1) flags.push('grader_conflict');
 
   const g = GRADER_RE.exec(title);
   const n = NUMBER_RE.exec(title);

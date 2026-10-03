@@ -34,6 +34,17 @@ describe('parseTitle', () => {
     expect(parseTitle(title).flags).toContain(flag);
   });
 
+  it.each([
+    'Celebrations Charizard 4/102 PSA 10',
+    'Charizard 4/102 Classic Collection PSA 10',
+    'Charizard 4/102 Pre-Release PSA 10',
+    'Charizard 4/102 First Ed PSA 10',
+    'Charizard 4/102 W Stamp PSA 10',
+    'Charizard 4/102 Jumbo PSA 10',
+  ])('flags "%s" as variant', (title) => {
+    expect(parseTitle(title).flags).toContain('variant');
+  });
+
   it('does not flag Mega Charizard X ex as a lot', () => {
     expect(parseTitle('Mega Charizard X ex 125/094 PSA 10').flags).toEqual([]);
   });

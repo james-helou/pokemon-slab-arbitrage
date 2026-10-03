@@ -11,7 +11,7 @@ export interface MatchResult {
   reasons: string[];
 }
 
-const BLOCKING_FLAGS = new Set(['non_english', 'lot', 'variant', 'not_authentic']);
+const BLOCKING_FLAGS = new Set(['non_english', 'lot', 'variant', 'not_authentic', 'raw_candidate', 'grader_conflict']);
 
 export function graderFromAspect(v: string | undefined): Grader | null {
   if (!v) return null;
@@ -35,7 +35,7 @@ function tokens(s: string): string[] {
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
     .filter(Boolean);
 }
@@ -57,18 +57,22 @@ export async function matchListing(
 
   const aspectGrader = graderFromAspect(input.aspects['Professional Grader']);
   const aspectGrade = parseGrade(input.aspects['Grade']);
+  if (input.aspects['Professional Grader'] && !aspectGrader) return { match: null, reasons: ['grader_unknown'] };
+  if (aspectGrade !== null && p.grade !== null && aspectGrade !== p.grade) return { match: null, reasons: ['grade_conflict'] };
   if (aspectGrader && p.grader && aspectGrader !== p.grader) return { match: null, reasons: ['grader_conflict'] };
   const grader = aspectGrader ?? p.grader;
   const grade = aspectGrade ?? p.grade;
   if (!grader || grade === null) return { match: null, reasons: ['grade_unknown'] };
 
   let number = p.number;
+  let numberWithoutTotal = false;
   let total = p.total;
   const aspectNumber = input.aspects['Card Number'];
   if (!number && aspectNumber) {
     const [n, t] = aspectNumber.split('/').map((x) => x.trim());
     number = n ? normalizeNumber(n.replace(/^#/, '')) : null;
     total = t ? normalizeNumber(t) : null;
+    numberWithoutTotal = total === null;
   }
   if (!number) return { match: null, reasons: ['number_unknown'] };
 
@@ -88,6 +92,10 @@ export async function matchListing(
     reasons.push('name_mismatch');
   } else {
     return { match: null, reasons: [cands.length > 1 ? 'ambiguous_card' : 'card_not_found'] };
+  }
+  if (numberWithoutTotal) {
+    confidence = Math.min(confidence, 0.8);
+    reasons.push('number_without_total');
   }
   if (aspectGrade === null) {
     confidence *= 0.9;
