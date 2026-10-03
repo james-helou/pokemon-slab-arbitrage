@@ -1,0 +1,18 @@
+{
+  "_note": "SAMPLE DATA for development only. These are not real market prices. Replace with the paid comps source in slice 2.",
+  "entries": [
+    {
+      "cardId": "sv3pt5-199",
+      "grader": "PSA",
+      "grade": 10,
+      "sales": [
+        { "price": 580, "daysAgo": 1 },
+        { "price": 590, "daysAgo": 2 },
+        { "price": 600, "daysAgo": 3 },
+        { "price": 600, "daysAgo": 4 },
+        { "price": 610, "daysAgo": 5 },
+        { "price": 620, "daysAgo": 6 }
+      ]
+    }
+  ]
+}
