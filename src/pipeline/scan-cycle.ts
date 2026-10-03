@@ -40,9 +40,9 @@ export async function scanCycle(deps: ScanDeps, cycle: number): Promise<ScanSumm
     const listing = summaryToListing(s);
     if (!listing) continue;
     seenIds.push(listing.externalId);
-    if (listing.listedAt && !Number.isNaN(listing.listedAt.getTime()) && (!windowFloor || listing.listedAt < windowFloor)) {
-      windowFloor = listing.listedAt;
-    }
+    // Floor = last returned item in page order (newest-first by start time). Not the min listedAt: itemCreationDate
+    // can predate the start time (GTC renewals, revisions) and one outlier would drag the floor back.
+    if (listing.listedAt && !Number.isNaN(listing.listedAt.getTime())) windowFloor = listing.listedAt;
     const { isNew } = await upsertListing(deps.db, listing, deps.now());
     if (isNew) summary.new++;
     if (!(await needsEvaluation(deps.db, listing))) continue;

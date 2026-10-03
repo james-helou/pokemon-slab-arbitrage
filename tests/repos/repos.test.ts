@@ -153,4 +153,17 @@ describe('disappearance bookkeeping', () => {
     expect(rows[0]).toMatchObject({ miss_count: 0, gone_at: null, gone_reason: null });
     expect(new Date(rows[0]!.checked_at).toISOString()).toBe(later.toISOString());
   });
+
+  it('ignores gone listings and listings exactly at the floor', async () => {
+    const db = await createTestDb();
+    await upsertListing(db, at('2026-10-03T11:55:00Z', 'gone'), NOW);
+    await upsertListing(db, at('2026-10-03T11:52:00Z', 'edge'), NOW);
+    await upsertListing(db, at('2026-10-03T11:58:00Z', 'open'), NOW);
+    await markGone(db, at('2026-10-03T11:55:00Z', 'gone'), NOW, 'not_found');
+    const floor = new Date('2026-10-03T11:52:00Z');
+    expect(await recordWindowMisses(db, 'ebay', [], floor)).toBe(1); // only 'open'
+    expect(await missOf(db, 'gone')).toBe(0);
+    expect(await missOf(db, 'edge')).toBe(0);
+    expect(await missOf(db, 'open')).toBe(1);
+  });
 });

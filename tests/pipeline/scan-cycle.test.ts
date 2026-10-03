@@ -107,16 +107,34 @@ describe('scanCycle', () => {
     const B = lot('v1|B|0', '2026-10-03T11:55:00.000Z');
     const C = lot('v1|C|0', '2026-10-03T11:58:00.000Z');
     const { db, deps } = await setup();
-    let results = [A, B, C];
+    let results = [C, B, A]; // newest-first, like eBay's newlyListed order
     deps.ebay = { ...deps.ebay, searchNewGraded: async () => results };
     expect((await scanCycle(deps, 0)).missed).toBe(0);
-    results = [A, C];
+    results = [C, A];
     for (let i = 1; i <= 3; i++) expect((await scanCycle(deps, i * 2)).missed).toBe(1);
     const miss = await db.query<{ miss_count: number }>(`select miss_count from listings where external_id = 'v1|B|0'`);
     expect(miss.rows[0]!.miss_count).toBe(3);
-    results = [A, B, C];
+    results = [C, B, A];
     expect((await scanCycle(deps, 8)).missed).toBe(0);
     const reset = await db.query<{ miss_count: number }>(`select miss_count from listings where external_id = 'v1|B|0'`);
     expect(reset.rows[0]!.miss_count).toBe(0);
+  });
+
+  it('takes the window floor from the last returned item, so an old-creation-date outlier causes no false misses', async () => {
+    const lot = (id: string, listed: string): EbayItemSummary => ({
+      ...SUMMARY, itemId: id, title: 'Lot of PSA 10 slabs', itemCreationDate: listed,
+    });
+    const A = lot('v1|A|0', '2026-10-03T11:50:00.000Z');
+    const C = lot('v1|C|0', '2026-10-03T11:58:00.000Z');
+    const D = lot('v1|D|0', '2026-10-03T11:40:00.000Z'); // older than the window: must not be counted
+    const OUTLIER = lot('v1|O|0', '2026-09-01T00:00:00.000Z'); // renewed GTC listing, recent start time but old creation date
+    const { db, deps } = await setup();
+    let results = [C, A, D];
+    deps.ebay = { ...deps.ebay, searchNewGraded: async () => results };
+    await scanCycle(deps, 0);
+    results = [C, OUTLIER, A];
+    expect((await scanCycle(deps, 2)).missed).toBe(0);
+    const { rows } = await db.query<{ miss_count: number }>(`select miss_count from listings where external_id = 'v1|D|0'`);
+    expect(rows[0]!.miss_count).toBe(0);
   });
 });
