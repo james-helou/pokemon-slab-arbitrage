@@ -173,4 +173,42 @@ describe('matchListing promo cards', () => {
     const r = await matchListing({ title: 'PSA 10 Lugia HGSS05 Promo', aspects: {} }, spy([]).lookup);
     expect(r.reasons).toEqual(['number_unknown']);
   });
+
+  it.each([
+    'PSA 10 Morpeko SWSH12 Silver Tempest',
+    'PSA 10 Snivy BW1 Black and White',
+    'PSA 10 Chespin XY1',
+    'PSA 10 Pikachu SM4',
+  ])('does not look up a main-set code as a promo: %s', async (title) => {
+    const s = spy([PIKA]);
+    const r = await matchListing({ title, aspects: ASPECTS }, s.lookup);
+    expect(r.match).toBeNull();
+    expect(r.reasons).toEqual(['number_unknown']);
+    expect(s.calls).toEqual([]);
+  });
+
+  it('rejects when the title promo and the aspect promo disagree', async () => {
+    const s = spy([PIKA]);
+    const r = await matchListing(
+      { title: 'PSA 10 Pikachu SWSH020', aspects: { ...ASPECTS, 'Card Number': 'SWSH050' } },
+      s.lookup,
+    );
+    expect(r.match).toBeNull();
+    expect(r.reasons).toEqual(['number_conflict']);
+  });
+
+  it('accepts a title and aspect that agree despite zero padding', async () => {
+    const s = spy([{ ...PIKA, name: 'Pikachu' }]);
+    const r = await matchListing(
+      { title: 'PSA 10 Pikachu SWSH020', aspects: { ...ASPECTS, 'Card Number': 'SWSH20' } },
+      s.lookup,
+    );
+    expect(r.match?.confidence).toBe(0.95);
+  });
+
+  it('rejects two different promo codes in one title', async () => {
+    const r = await matchListing({ title: 'PSA 10 Pikachu SWSH020 SWSH050', aspects: {} }, spy([PIKA]).lookup);
+    expect(r.match).toBeNull();
+    expect(r.reasons).toContain('number_conflict');
+  });
 });

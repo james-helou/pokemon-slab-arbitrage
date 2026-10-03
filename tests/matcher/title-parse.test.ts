@@ -88,4 +88,32 @@ describe('parseTitle promo codes', () => {
     expect(p.promoSet).toBeNull();
     expect(p.number).toBeNull();
   });
+
+  it.each([
+    'PSA 10 Morpeko SWSH12 Silver Tempest',
+    'PSA 10 Snivy BW1 Black and White',
+    'PSA 10 Chespin XY1',
+    'PSA 10 Pikachu SM4',
+    'PSA 10 Pikachu SM01',
+    'PSA 10 Pikachu SM 10',
+  ])('does not treat main-set code as a promo: %s', (title) => {
+    const p = parseTitle(title);
+    expect(p.promoSet).toBeNull();
+    expect(p.number).toBeNull();
+  });
+
+  it.each([
+    ['PSA 10 Pikachu XY95', 'xyp', 'XY95'],
+    ['PSA 10 Pikachu SWSH050', 'swshp', 'SWSH050'],
+    ['PSA 10 Pikachu SWSH020', 'swshp', 'SWSH020'],
+    ['PSA 10 Pikachu XY01 Black Star Promo', 'xyp', 'XY01'],
+    ['PSA 10 Pikachu SM4 Promo', 'smp', 'SM4'],
+    ['PSA 10 Pikachu SVP 001', 'svp', '1'],
+  ])('treats an unambiguous code as a promo: %s', (title, promoSet, number) => {
+    expect(parseTitle(title)).toMatchObject({ promoSet, number });
+  });
+
+  it('flags two different promo codes in one title', () => {
+    expect(parseTitle('PSA 10 Pikachu SWSH020 SWSH050').flags).toContain('number_conflict');
+  });
 });

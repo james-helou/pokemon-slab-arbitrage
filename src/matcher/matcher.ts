@@ -1,8 +1,8 @@
 import type { CardCandidate } from '../catalog/catalog-repo.js';
 import type { Grader, Match } from '../domain/types.js';
-import { normalizeNumber, parsePromo, parseTitle } from './title-parse.js';
+import { normalizeNumber, parsePromos, parseTitle } from './title-parse.js';
 
-export const MATCHER_VERSION = 'v1.1.0';
+export const MATCHER_VERSION = 'v1.1.1';
 
 export type CandidateLookup = (number: string, total: string | null, promoSet?: string) => Promise<CardCandidate[]>;
 
@@ -11,7 +11,7 @@ export interface MatchResult {
   reasons: string[];
 }
 
-const BLOCKING_FLAGS = new Set(['non_english', 'lot', 'variant', 'not_authentic', 'raw_candidate', 'grader_conflict']);
+const BLOCKING_FLAGS = new Set(['non_english', 'lot', 'variant', 'not_authentic', 'raw_candidate', 'grader_conflict', 'number_conflict']);
 
 export function graderFromAspect(v: string | undefined): Grader | null {
   if (!v) return null;
@@ -45,6 +45,9 @@ function nameInTitle(name: string, title: string): boolean {
   return tokens(name).every((x) => t.has(x));
 }
 
+const PROMO_WORD = /\bpromo|black\s*star/i;
+const promoKey = (p: { promoSet: string; number: string }) => `${p.promoSet}:${Number.parseInt(p.number.replace(/\D/g, ''), 10)}`;
+
 export async function matchListing(
   input: { title: string; aspects: Record<string, string> },
   lookup: CandidateLookup,
@@ -69,8 +72,11 @@ export async function matchListing(
   let total = p.total;
   let promoSet = p.promoSet;
   const aspectNumber = input.aspects['Card Number'];
-  const aspectPromo = !number && aspectNumber ? parsePromo(aspectNumber, true) : null;
-  if (aspectPromo) {
+  const aspectPromo = aspectNumber ? (parsePromos(aspectNumber, true, PROMO_WORD.test(input.title))[0] ?? null) : null;
+  if (aspectPromo && p.promoSet && promoKey(aspectPromo) !== promoKey({ promoSet: p.promoSet, number: p.number! })) {
+    return { match: null, reasons: ['number_conflict'] };
+  }
+  if (!number && aspectPromo) {
     number = aspectPromo.number;
     promoSet = aspectPromo.promoSet;
   } else if (!number && aspectNumber) {

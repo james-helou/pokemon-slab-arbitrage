@@ -98,7 +98,7 @@ describe('catalog', () => {
       `insert into comps (card_id, grader, grade, price, sold_at, kind, source_ref) values ('A1-001', 'PSA', 10, 5, now(), 'paid_source', 'x')`,
     );
     const logs: { m: string; d?: Record<string, unknown> }[] = [];
-    const r = await syncCatalog(db, fakeFetch(), (_l, m, d) => void logs.push({ m, d }), { sleep: async () => {} });
+    const r = await syncCatalog(db, fakeFetch(), (_l, m, d) => void logs.push({ m, d }), { sleep: async () => {}, maxStaleRatio: 1 });
     expect(r.removed).toBe(1);
     expect(await getCard(db, 'sv3pt5-199')).toBeNull();
     expect(await getCard(db, 'A1-001')).not.toBeNull();
@@ -142,5 +142,15 @@ describe('catalog', () => {
     expect(a.match?.cardId).toBe('svp-085');
     const b = await matchListing({ title: 'Pikachu with Grey Felt Hat PSA 10', aspects: { 'Card Number': 'SVP085' } }, lookup);
     expect(b.match?.cardId).toBe('svp-085');
+  });
+
+  it('skips stale removal and warns when it would remove over 10% of rows', async () => {
+    const db = await createTestDb();
+    await seedCards(db, [{ id: 'old-1', name: 'Old', number: '1', setId: 'old', setName: 'Old', setPrintedTotal: 1 }]);
+    const logs: string[] = [];
+    const r = await syncCatalog(db, fakeFetch(), (l, m) => void logs.push(`${l}:${m}`), { sleep: async () => {} });
+    expect(r.removed).toBe(0);
+    expect(await getCard(db, 'old-1')).not.toBeNull();
+    expect(logs.some((m) => m.startsWith('warn:') && m.includes('stale'))).toBe(true);
   });
 });
