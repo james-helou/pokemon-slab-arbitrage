@@ -1,6 +1,6 @@
 import type { Channel } from '../channels/channels.js';
 
-export const round2 = (n: number): number => Math.round(n * 100) / 100;
+export const round2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100;
 
 /** Everything the seller pays on a sale at `salePrice` through `ch` (commission, payment, flat, shipping, supplies). */
 export function channelCosts(ch: Channel, salePrice: number): number {

@@ -66,4 +66,22 @@ describe('score', () => {
     expect(r.decision).toBe('reject');
     expect(r.rejectReasons).toContain('no_enabled_channel');
   });
+
+  it('rejects non-finite input with invalid_input', () => {
+    const r = score({ ...base, valuation: { value: Number.NaN, confidence: 0.8 } });
+    expect(r.decision).toBe('reject');
+    expect(r.rejectReasons).toContain('invalid_input');
+  });
+
+  it('clamps a red flag penalty above 1', () => {
+    const r = score({ ...base, redFlags: [{ code: 'x', blocking: false, confidencePenalty: 1.5 }] as ScoreInput['redFlags'] });
+    expect(r.confidence).toBe(0);
+  });
+
+  it('reports only no_enabled_channel when no channel is enabled', () => {
+    const r = score({ ...base, channels: [LOCAL_DISABLED] });
+    expect(r.rejectReasons).toContain('no_enabled_channel');
+    expect(r.rejectReasons).not.toContain('net_below_min');
+    expect(r.rejectReasons).not.toContain('roi_below_min');
+  });
 });

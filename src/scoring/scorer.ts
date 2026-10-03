@@ -38,6 +38,20 @@ export interface ScoreResult {
 
 export function score(input: ScoreInput): ScoreResult {
   const { settings, valuation } = input;
+  if (![input.price, input.shipping, valuation.value, valuation.confidence, input.matchConfidence].every(Number.isFinite)) {
+    return {
+      buyTotal: 0,
+      channelNets: [],
+      bestChannel: null,
+      bestNet: 0,
+      roi: 0,
+      confidence: 0,
+      rank: 0,
+      decision: 'reject',
+      rejectReasons: ['invalid_input'],
+      scorerVersion: SCORER_VERSION,
+    };
+  }
   const bt = computeBuyTotal(input.price, input.shipping, settings.buyTaxRate);
 
   const channelNets: ChannelNet[] = input.channels
@@ -49,16 +63,19 @@ export function score(input: ScoreInput): ScoreResult {
 
   const best = channelNets.reduce<ChannelNet | null>((acc, c) => (acc === null || c.net > acc.net ? c : acc), null);
   const bestNet = best ? best.net : 0;
-  const penalty = input.redFlags.reduce((acc, f) => acc * (1 - f.confidencePenalty), 1);
+  const penalty = input.redFlags.reduce((acc, f) => acc * (1 - Math.min(1, Math.max(0, f.confidencePenalty))), 1);
   const confidence = Math.round(Math.min(1, Math.max(0, valuation.confidence * input.matchConfidence * penalty)) * 1000) / 1000;
+  // roi is 0 when buyTotal is 0, which makes it reject (deliberately conservative).
   const roi = bt > 0 ? Math.round((bestNet / bt) * 10_000) / 10_000 : 0;
 
   const rejectReasons: string[] = [];
   if (!best) rejectReasons.push('no_enabled_channel');
   if (valuation.value < settings.valueFloor) rejectReasons.push('below_value_floor');
   if (bt > settings.alertRatio * valuation.value) rejectReasons.push('price_above_alert_ratio');
-  if (bestNet < settings.minNet) rejectReasons.push('net_below_min');
-  if (roi < settings.minRoi) rejectReasons.push('roi_below_min');
+  if (best) {
+    if (bestNet < settings.minNet) rejectReasons.push('net_below_min');
+    if (roi < settings.minRoi) rejectReasons.push('roi_below_min');
+  }
   for (const f of input.redFlags) if (f.blocking) rejectReasons.push(`red_flag:${f.code}`);
 
   const decision = rejectReasons.length > 0 ? 'reject' : bt > input.availableCash ? 'over_budget' : 'alert';

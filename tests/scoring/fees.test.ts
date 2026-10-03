@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buyTotal, channelCosts, netProfit } from '../../src/scoring/fees.js';
+import { buyTotal, channelCosts, netProfit, round2 } from '../../src/scoring/fees.js';
 import { EBAY, TCGPLAYER } from '../helpers/channels.js';
 
 describe('fees', () => {
@@ -20,5 +20,8 @@ describe('fees', () => {
   });
   it('net profit = sale - costs - buy total', () => {
     expect(netProfit(EBAY, 600, 379.85)).toBe(133.75);
+  });
+  it('round2 rounds half-cent floating error up', () => {
+    expect(round2(1.005)).toBe(1.01);
   });
 });
