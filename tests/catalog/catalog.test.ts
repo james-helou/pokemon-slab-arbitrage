@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { findCandidates, getCard } from '../../src/catalog/catalog-repo.js';
-import { syncCatalog } from '../../src/catalog/sync.js';
+import { skippedTooMany, syncCatalog } from '../../src/catalog/sync.js';
 import { matchListing } from '../../src/matcher/matcher.js';
 import { silentLog } from '../../src/log.js';
 import { createTestDb } from '../helpers/test-db.js';
@@ -68,5 +68,51 @@ describe('catalog', () => {
     await syncCatalog(db, fakeFetch(), silentLog, { sleep: async () => {} });
     const r = await matchListing({ title: 'PSA 10 Duraludon VMAX TG30/TG30', aspects: {} }, (n, t) => findCandidates(db, n, t));
     expect(r.match?.cardId).toBe('tg-TG30');
+  });
+
+  it('skippedTooMany trips above 5% of attempted sets', () => {
+    expect(skippedTooMany(0, 0)).toBe(false);
+    expect(skippedTooMany(1, 20)).toBe(false);
+    expect(skippedTooMany(2, 20)).toBe(true);
+    expect(skippedTooMany(1, 10)).toBe(true);
+  });
+
+  it('refuses to write a partial catalog when too many sets were skipped', async () => {
+    const db = await createTestDb();
+    const base = fakeFetch();
+    const failing = (async (url: string, init?: RequestInit) =>
+      url.endsWith('/sets/a') || url.endsWith('/sets/b') ? new Response('{}', { status: 500 }) : base(url, init)) as unknown as typeof fetch;
+    await expect(syncCatalog(db, failing, silentLog, { sleep: async () => {} })).rejects.toThrow(/skipped/);
+    const { rows } = await db.query<{ n: number }>('select count(*)::int as n from cards');
+    expect(rows[0]!.n).toBe(0);
+  });
+
+  it('removes stale rows after a clean sync but keeps and logs referenced ones', async () => {
+    const db = await createTestDb();
+    await seedCards(db, [
+      { id: 'sv3pt5-199', name: 'Old', number: '199', setId: 'sv3pt5', setName: '151', setPrintedTotal: 165 },
+      { id: 'A1-001', name: 'Pocket', number: '1', setId: 'A1', setName: 'Genetic Apex', setPrintedTotal: 226 },
+    ]);
+    await db.query(
+      `insert into comps (card_id, grader, grade, price, sold_at, kind, source_ref) values ('A1-001', 'PSA', 10, 5, now(), 'paid_source', 'x')`,
+    );
+    const logs: { m: string; d?: Record<string, unknown> }[] = [];
+    const r = await syncCatalog(db, fakeFetch(), (_l, m, d) => void logs.push({ m, d }), { sleep: async () => {} });
+    expect(r.removed).toBe(1);
+    expect(await getCard(db, 'sv3pt5-199')).toBeNull();
+    expect(await getCard(db, 'A1-001')).not.toBeNull();
+    expect(logs.find((l) => l.m.includes('stale'))?.d).toMatchObject({ ids: ['A1-001'] });
+  });
+
+  it('does not remove anything when a set was skipped', async () => {
+    const db = await createTestDb();
+    await seedCards(db, [{ id: 'old-1', name: 'Old', number: '1', setId: 'old', setName: 'Old', setPrintedTotal: 1 }]);
+    const base = fakeFetch();
+    // 1 of 4 sets skipped is 25%, so use a larger fake: keep gate permissive via maxSkippedRatio
+    const failing = (async (url: string, init?: RequestInit) =>
+      url.endsWith('/sets/c') ? new Response('{}', { status: 404 }) : base(url, init)) as unknown as typeof fetch;
+    const r = await syncCatalog(db, failing, silentLog, { sleep: async () => {}, maxSkippedRatio: 1 });
+    expect(r.skippedSets).toEqual(['c']);
+    expect(await getCard(db, 'old-1')).not.toBeNull();
   });
 });

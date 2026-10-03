@@ -6,6 +6,8 @@ const BASE = 'https://api.tcgdex.net/v2/en';
 const MAX_TRIES = 4;
 const BASE_DELAY_MS = 500;
 const CONCURRENCY = 4;
+const REQUEST_TIMEOUT_MS = 15_000;
+const MAX_RETRY_AFTER_S = 30;
 /** Digital or otherwise non-physical series. TCG Pocket (tcgp) card names would cause ambiguous matches. */
 export const EXCLUDED_SERIES = ['tcgp'];
 
@@ -24,6 +26,7 @@ interface TcgdexSet {
 export interface FetchAllResult {
   cards: CardRow[];
   skippedSets: string[];
+  attemptedSets: number;
 }
 
 export interface ClientOptions {
@@ -37,16 +40,21 @@ async function getJson<T>(fetchFn: typeof fetch, path: string, sleep: (ms: numbe
   let lastError = '';
   for (let attempt = 1; attempt <= MAX_TRIES; attempt++) {
     let retryable = true;
+    let delay = BASE_DELAY_MS * 2 ** (attempt - 1);
     try {
-      const res = await fetchFn(`${BASE}${path}`);
+      const res = await fetchFn(`${BASE}${path}`, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
       if (res.ok) return (await res.json()) as T;
       lastError = `${res.status}`;
       retryable = res.status === 429 || res.status >= 500;
+      const retryAfter = Number(res.headers.get('Retry-After'));
+      if (res.status === 429 && res.headers.get('Retry-After') && Number.isFinite(retryAfter) && retryAfter >= 0) {
+        delay = Math.min(retryAfter, MAX_RETRY_AFTER_S) * 1000;
+      }
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);
     }
     if (!retryable) break;
-    if (attempt < MAX_TRIES) await sleep(BASE_DELAY_MS * 2 ** (attempt - 1));
+    if (attempt < MAX_TRIES) await sleep(delay);
   }
   throw new Error(`tcgdex ${path}: ${lastError}`);
 }
@@ -83,7 +91,7 @@ export async function fetchAllCards(fetchFn: typeof fetch, log: Log, opts: Clien
         }
         bySet[i] = (set.cards ?? []).map((c) => ({
           id: c.id, name: c.name, number: normalizeNumber(c.localId.replace(/\s+/g, '')),
-          setId: set.id, setName: set.name, setPrintedTotal: set.cardCount?.official ?? null,
+          setId: set.id, setName: set.name, setPrintedTotal: set.cardCount?.official || null,
         }));
         log('info', 'catalog set fetched', { set: id, cards: bySet[i]!.length });
       } catch (err) {
@@ -94,5 +102,5 @@ export async function fetchAllCards(fetchFn: typeof fetch, log: Log, opts: Clien
   };
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, sets.length) }, worker));
   log('info', 'catalog excluded sets in excluded series', { excluded, series: EXCLUDED_SERIES });
-  return { cards: bySet.flat(), skippedSets };
+  return { cards: bySet.flat(), skippedSets, attemptedSets: sets.length };
 }

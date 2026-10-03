@@ -12,8 +12,10 @@ function fakeFetch(handlers: Record<string, Handler>) {
   const calls: string[] = [];
   let inFlight = 0;
   let maxInFlight = 0;
-  const fn = (async (url: string) => {
+  const inits: (RequestInit | undefined)[] = [];
+  const fn = (async (url: string, init?: RequestInit) => {
     calls.push(url);
+    inits.push(init);
     inFlight++;
     maxInFlight = Math.max(maxInFlight, inFlight);
     await new Promise((r) => setTimeout(r, 1));
@@ -22,7 +24,7 @@ function fakeFetch(handlers: Record<string, Handler>) {
     if (!h) return json({}, 404);
     return h(url, calls.filter((c) => c === url).length);
   }) as unknown as typeof fetch;
-  return { fn, calls, maxInFlight: () => maxInFlight };
+  return { fn, calls, inits, maxInFlight: () => maxInFlight };
 }
 
 const noSleep = { sleep: async () => {} };
@@ -125,5 +127,53 @@ describe('tcgdex client', () => {
     const r = await fetchAllCards(f.fn, silentLog, noSleep);
     expect(r.cards).toEqual([]);
     expect(r.skippedSets).toEqual([]);
+  });
+
+  it('passes a timeout abort signal on every request', async () => {
+    const f = fakeFetch({ ...okSets(['base1']), '/sets/base1': () => json(fx('base1')) });
+    await fetchAllCards(f.fn, silentLog, noSleep);
+    expect(f.inits.length).toBeGreaterThan(0);
+    expect(f.inits.every((i) => i?.signal instanceof AbortSignal)).toBe(true);
+  });
+
+  it('treats a timeout as retryable', async () => {
+    let n = 0;
+    const f = fakeFetch({
+      ...okSets(['base1']),
+      '/sets/base1': () => {
+        if (++n === 1) throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+        return json(fx('base1'));
+      },
+    });
+    const r = await fetchAllCards(f.fn, silentLog, noSleep);
+    expect(r.cards).toHaveLength(1);
+    expect(r.skippedSets).toEqual([]);
+  });
+
+  it('honors Retry-After on 429, capped at 30s', async () => {
+    const delays: number[] = [];
+    const f = fakeFetch({
+      ...okSets(['base1']),
+      '/sets/base1': (_u, n) =>
+        n === 1 ? new Response('{}', { status: 429, headers: { 'Retry-After': '7' } })
+        : n === 2 ? new Response('{}', { status: 429, headers: { 'Retry-After': '999' } })
+        : json(fx('base1')),
+    });
+    await fetchAllCards(f.fn, silentLog, { sleep: async (ms) => void delays.push(ms) });
+    expect(delays).toEqual([7000, 30000]);
+  });
+
+  it('stores a zero official count as null', async () => {
+    const f = fakeFetch({
+      '/sets': () => json([{ id: 'z' }]),
+      '/sets/z': () => json({ id: 'z', name: 'Z', cardCount: { official: 0, total: 3 }, cards: [{ id: 'z-1', localId: '1', name: 'X' }] }),
+    });
+    const r = await fetchAllCards(f.fn, silentLog, noSleep);
+    expect(r.cards[0]!.setPrintedTotal).toBeNull();
+  });
+
+  it('reports how many sets it attempted', async () => {
+    const f = fakeFetch({ ...okSets(['base1', 'sv03.5']), '/sets/base1': () => json(fx('base1')), '/sets/sv03.5': () => json({}, 404) });
+    expect((await fetchAllCards(f.fn, silentLog, noSleep)).attemptedSets).toBe(2);
   });
 });
