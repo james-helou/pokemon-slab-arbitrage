@@ -50,6 +50,22 @@ describe('eBay client', () => {
     expect(await client(f.fn).getItem('v1|111|0')).toBeNull();
   });
 
+  it('clears the token and retries once on 401', async () => {
+    let tokens = 0;
+    let searches = 0;
+    const fn = (async (url: string) => {
+      if (url.includes('/oauth2/token')) {
+        tokens++;
+        return new Response(JSON.stringify({ access_token: `tok${tokens}`, expires_in: 7200 }));
+      }
+      searches++;
+      return searches === 1 ? new Response('no', { status: 401 }) : new Response(JSON.stringify({ itemSummaries: [SUMMARY] }));
+    }) as unknown as typeof fetch;
+    expect(await client(fn).searchNewGraded()).toHaveLength(1);
+    expect(tokens).toBe(2);
+    expect(searches).toBe(2);
+  });
+
   it('counts each API call against the budget (not the token call)', async () => {
     let n = 0;
     const budget: Budget = { limit: 5000, beforeCall: async () => { n++; }, usedToday: async () => n };
@@ -73,15 +89,27 @@ describe('budget', () => {
 
 describe('normalize', () => {
   it('maps a summary to a Listing', () => {
-    expect(summaryToListing(SUMMARY)).toMatchObject({
+    expect(summaryToListing(SUMMARY)!).toMatchObject({
       source: 'ebay', externalId: 'v1|111|0', price: 350, shipping: 5, sellerFeedbackScore: 500,
       sellerFeedbackPct: 99.8, aspects: {},
     });
   });
 
+  it('uses null shipping when eBay gives no shipping cost', () => {
+    expect(summaryToListing({ ...SUMMARY, shippingOptions: [{}] })?.shipping).toBeNull();
+    expect(summaryToListing({ ...SUMMARY, shippingOptions: undefined })?.shipping).toBeNull();
+    expect(summaryToListing({ ...SUMMARY, shippingOptions: [{ shippingCost: { value: '0.00', currency: 'USD' } }] })?.shipping).toBe(0);
+  });
+
+  it('drops non-USD and non-finite prices', () => {
+    expect(summaryToListing({ ...SUMMARY, price: { value: '350.00', currency: 'EUR' } })).toBeNull();
+    expect(summaryToListing({ ...SUMMARY, price: { value: 'abc', currency: 'USD' } })).toBeNull();
+  });
+
   it('merges item aspects', () => {
-    const l = mergeItemDetails(summaryToListing(SUMMARY), ITEM);
-    expect(l.aspects['Certification Number']).toBe('12345678');
+    const l = mergeItemDetails(summaryToListing(SUMMARY)!, ITEM);
+    expect(l!.aspects['Certification Number']).toBe('12345678');
+    expect(mergeItemDetails(summaryToListing(SUMMARY)!, { ...ITEM, price: { value: '1', currency: 'EUR' } })).toBeNull();
   });
 
   it('detects out of stock', () => {

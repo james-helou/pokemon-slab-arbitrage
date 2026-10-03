@@ -1,6 +1,10 @@
 import type { Db } from '../db/db.js';
+import { log as defaultLog, type Log } from '../log.js';
 import type { Grader, Valuation } from '../domain/types.js';
 import type { ChannelNet } from '../scoring/scorer.js';
+
+export const MAX_DELIVERY_ATTEMPTS = 5;
+const CLAIM_LEASE_SECS = 300;
 
 export type Route = 'alerts' | 'over_budget';
 
@@ -9,7 +13,7 @@ export interface ListingSnapshot {
   url: string;
   imageUrl: string | null;
   price: number;
-  shipping: number;
+  shipping: number | null;
   sellerUsername: string | null;
   sellerFeedbackScore: number | null;
 }
@@ -110,35 +114,57 @@ export async function insertDelivery(db: Db, recommendationId: number, route: Ro
   ]);
 }
 
+/**
+ * Atomically claims due deliveries by leasing them (next_attempt_at pushed into the future),
+ * so overlapping ticks never receive the same row. markDelivered/markFailed reset the schedule.
+ */
 export async function dueDeliveries(
   db: Db,
   now: Date,
   limit: number,
 ): Promise<{ recommendation: StoredRecommendation; route: Route }[]> {
   const { rows } = await db.query<Record<string, unknown>>(
-    `select r.*, d.route from alert_deliveries d join recommendations r on r.id = d.recommendation_id
-     where d.status <> 'sent' and d.attempts < 5
-       and (d.attempts = 0 or d.updated_at <= $1::timestamptz - make_interval(secs => 30 * power(2, d.attempts)))
-     order by r.rank desc limit $2`,
-    [now, limit],
+    `with claimed as (
+       update alert_deliveries set next_attempt_at = $1::timestamptz + make_interval(secs => $4)
+       where recommendation_id in (
+         select d.recommendation_id from alert_deliveries d join recommendations r on r.id = d.recommendation_id
+         where d.status <> 'sent' and d.attempts < $3
+           and (d.next_attempt_at is null or d.next_attempt_at <= $1::timestamptz)
+         order by r.rank desc limit $2
+         for update of d skip locked
+       )
+       returning recommendation_id, route
+     )
+     select r.*, c.route from claimed c join recommendations r on r.id = c.recommendation_id order by r.rank desc`,
+    [now, limit, MAX_DELIVERY_ATTEMPTS, CLAIM_LEASE_SECS],
   );
   return rows.map((r) => ({ recommendation: rowToRecommendation(r), route: r.route as Route }));
 }
 
 export async function markDelivered(db: Db, recommendationId: number, messageId: string, now: Date): Promise<void> {
   await db.query(
-    `update alert_deliveries set status = 'sent', message_id = $2, attempts = attempts + 1, updated_at = $3
-     where recommendation_id = $1`,
+    `update alert_deliveries set status = 'sent', message_id = $2, attempts = attempts + 1, updated_at = $3,
+       next_attempt_at = null where recommendation_id = $1`,
     [recommendationId, messageId, now],
   );
 }
 
-export async function markFailed(db: Db, recommendationId: number, error: string, now: Date): Promise<void> {
-  await db.query(
-    `update alert_deliveries set status = 'failed', last_error = $2, attempts = attempts + 1, updated_at = $3
-     where recommendation_id = $1`,
+export async function markFailed(
+  db: Db,
+  recommendationId: number,
+  error: string,
+  now: Date,
+  log: Log = defaultLog,
+): Promise<void> {
+  const { rows } = await db.query<{ attempts: number }>(
+    `update alert_deliveries set status = 'failed', last_error = $2, attempts = attempts + 1, updated_at = $3,
+       next_attempt_at = $3::timestamptz + make_interval(secs => 30 * power(2, attempts + 1))
+     where recommendation_id = $1 returning attempts`,
     [recommendationId, error.slice(0, 1000), now],
   );
+  if (rows[0] && Number(rows[0].attempts) >= MAX_DELIVERY_ATTEMPTS) {
+    log('error', 'alert delivery dead', { recommendationId, attempts: Number(rows[0].attempts), lastError: error.slice(0, 200) });
+  }
 }
 
 export type DecisionAction = 'bought' | 'pass' | 'watch';
@@ -146,10 +172,13 @@ export type DecisionAction = 'bought' | 'pass' | 'watch';
 export async function insertDecision(
   db: Db,
   d: { recommendationId: number; action: DecisionAction; reason: string | null; actor: string | null },
-): Promise<void> {
-  await db.query(`insert into decisions (recommendation_id, action, reason, actor) values ($1, $2, $3, $4)`, [
-    d.recommendationId, d.action, d.reason, d.actor,
-  ]);
+): Promise<boolean> {
+  const { rows } = await db.query(
+    `insert into decisions (recommendation_id, action, reason, actor) values ($1, $2, $3, $4)
+     on conflict do nothing returning id`,
+    [d.recommendationId, d.action, d.reason, d.actor],
+  );
+  return rows.length > 0;
 }
 
 export async function hasDecision(db: Db, recommendationId: number, action: DecisionAction): Promise<boolean> {

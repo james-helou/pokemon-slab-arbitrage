@@ -7,7 +7,8 @@ export interface Listing {
   externalId: string;
   title: string;
   price: number;
-  shipping: number;
+  /** null = unknown (eBay gave no shipping cost); callers must treat as blocking. */
+  shipping: number | null;
   currency: string;
   url: string;
   imageUrl: string | null;

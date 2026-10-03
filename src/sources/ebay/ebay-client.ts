@@ -62,10 +62,14 @@ export function createEbayClient(o: EbayClientOptions): EbayClient {
   }
 
   async function get(path: string): Promise<Response> {
-    await o.budget.beforeCall();
-    return o.fetchFn(`${API}${path}`, {
-      headers: { Authorization: `Bearer ${await getToken()}`, 'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US' },
-    });
+    for (let attempt = 0; ; attempt++) {
+      await o.budget.beforeCall();
+      const res = await o.fetchFn(`${API}${path}`, {
+        headers: { Authorization: `Bearer ${await getToken()}`, 'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US' },
+      });
+      if (res.status !== 401 || attempt >= 1) return res;
+      token = null;
+    }
   }
 
   return {

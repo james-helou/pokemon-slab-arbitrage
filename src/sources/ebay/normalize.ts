@@ -1,13 +1,18 @@
 import type { Listing } from '../../domain/types.js';
 import type { EbayItem, EbayItemSummary } from './ebay-client.js';
 
-export function summaryToListing(s: EbayItemSummary): Listing {
+/** Returns null (drop the listing) when the price is not finite USD. */
+export function summaryToListing(s: EbayItemSummary): Listing | null {
+  const price = Number(s.price.value);
+  if (s.price.currency !== 'USD' || !Number.isFinite(price)) return null;
+  const ship = s.shippingOptions?.[0]?.shippingCost;
+  const shipping = ship && Number.isFinite(Number(ship.value)) && ship.value !== '' ? Number(ship.value) : null;
   return {
     source: 'ebay',
     externalId: s.itemId,
     title: s.title,
-    price: Number(s.price.value),
-    shipping: Number(s.shippingOptions?.[0]?.shippingCost?.value ?? 0),
+    price,
+    shipping,
     currency: s.price.currency,
     url: s.itemWebUrl,
     imageUrl: s.image?.imageUrl ?? null,
@@ -20,8 +25,9 @@ export function summaryToListing(s: EbayItemSummary): Listing {
   };
 }
 
-export function mergeItemDetails(listing: Listing, item: EbayItem): Listing {
+export function mergeItemDetails(listing: Listing, item: EbayItem): Listing | null {
   const base = summaryToListing(item);
+  if (!base) return null;
   const aspects: Record<string, string> = {};
   for (const a of item.localizedAspects ?? []) aspects[a.name] = a.value;
   return { ...base, listedAt: base.listedAt ?? listing.listedAt, aspects, raw: item };

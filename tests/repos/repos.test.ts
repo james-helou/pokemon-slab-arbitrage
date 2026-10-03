@@ -14,12 +14,16 @@ const NOW = new Date('2026-10-03T12:00:00Z');
 describe('listings repo', () => {
   it('reports new vs seen and keeps enriched aspects', async () => {
     const db = await createTestDb();
-    const summary = summaryToListing(SUMMARY);
+    const summary = summaryToListing(SUMMARY)!;
     expect((await upsertListing(db, summary, NOW)).isNew).toBe(true);
-    await upsertListing(db, mergeItemDetails(summary, ITEM), NOW);
+    await upsertListing(db, mergeItemDetails(summary, ITEM)!, NOW);
     expect((await upsertListing(db, summary, NOW)).isNew).toBe(false);
     const { rows } = await db.query<{ aspects: Record<string, string> }>('select aspects from listings');
     expect(rows[0]!.aspects['Grade']).toBe('10');
+    const nullShip = { ...summary, externalId: 'v1|222|0', shipping: null };
+    await upsertListing(db, nullShip, NOW);
+    const sh = await db.query<{ shipping: string | null }>(`select shipping from listings where external_id = 'v1|222|0'`);
+    expect(sh.rows[0]!.shipping).toBeNull();
     await markGone(db, summary, NOW);
     await insertMatch(db, summary, { match: null, reasons: ['lot'] }, 'title');
     const m = await db.query<{ reasons: string[] }>('select reasons from listing_matches');
@@ -52,13 +56,35 @@ describe('ledger repo', () => {
     expect(await dueDeliveries(db, new Date(NOW.getTime() + 999_000), 10)).toEqual([]);
   });
 
+  it('claims due deliveries so overlapping ticks do not double-send', async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    const id = (await insertRecommendation(db, makeNewRecommendation()))!;
+    await insertDelivery(db, id, 'alerts');
+    expect(await dueDeliveries(db, NOW, 10)).toHaveLength(1);
+    expect(await dueDeliveries(db, NOW, 10)).toEqual([]);
+  });
+
+  it('logs when a delivery is dead after max attempts', async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    const id = (await insertRecommendation(db, makeNewRecommendation()))!;
+    await insertDelivery(db, id, 'alerts');
+    const logs: string[] = [];
+    const spy = (level: string, msg: string) => void logs.push(`${level}:${msg}`);
+    for (let i = 0; i < 5; i++) await markFailed(db, id, 'boom', NOW, spy);
+    expect(logs).toEqual(['error:alert delivery dead']);
+  });
+
   it('records decisions', async () => {
     const db = await createTestDb();
     await seedCards(db);
     const id = (await insertRecommendation(db, makeNewRecommendation()))!;
     expect(await hasDecision(db, id, 'bought')).toBe(false);
-    await insertDecision(db, { recommendationId: id, action: 'bought', reason: null, actor: 'james' });
+    expect(await insertDecision(db, { recommendationId: id, action: 'bought', reason: null, actor: 'james' })).toBe(true);
     expect(await hasDecision(db, id, 'bought')).toBe(true);
+    expect(await insertDecision(db, { recommendationId: id, action: 'bought', reason: null, actor: 'james' })).toBe(false);
+    expect(await insertDecision(db, { recommendationId: id, action: 'pass', reason: null, actor: 'james' })).toBe(true);
   });
 });
 
