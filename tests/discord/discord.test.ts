@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { addEntry, availableCash } from '../../src/bankroll/bankroll-repo.js';
-import { buildAlertPayload, buildPassReasonMenu } from '../../src/discord/alert-payload.js';
+import { addEntry, availableCash, recordPurchase } from '../../src/bankroll/bankroll-repo.js';
+import { PASS_REASONS, buildAlertPayload, buildPassReasonMenu } from '../../src/discord/alert-payload.js';
 import { handleCommand, handleComponent, parseCustomId } from '../../src/discord/handlers.js';
 import { getRecommendation, hasDecision, insertRecommendation } from '../../src/ledger/ledger-repo.js';
 import { loadSettings } from '../../src/settings/settings.js';
@@ -42,6 +42,27 @@ describe('buildAlertPayload', () => {
     expect(fields['Buy total']).not.toContain('null');
   });
 
+  it('omits non-eBay urls', async () => {
+    const { rec } = await setupRec();
+    for (const url of ['javascript:alert(1)', 'https://evilebay.com/x', 'http://www.ebay.com/itm/1']) {
+      const p = buildAlertPayload({ ...rec, listingSnapshot: { ...rec.listingSnapshot, url } });
+      expect(p.embeds[0]!.url).toBeUndefined();
+      expect(p.components[0]!.components.map((b) => b.label)).toEqual(['Bought', 'Pass', 'Watch']);
+    }
+  });
+
+  it('caps field values at 1024 and uses a main image and a Why field', async () => {
+    const { rec } = await setupRec();
+    const p = buildAlertPayload({ ...rec, redFlags: ['x'.repeat(3000)] });
+    const e = p.embeds[0]!;
+    for (const f of e.fields ?? []) expect(f.value.length).toBeLessThanOrEqual(1024);
+    expect(e.image?.url).toBe('https://i.ebayimg.com/111.jpg');
+    expect(e.thumbnail).toBeUndefined();
+    const why = (e.fields ?? []).find((f) => f.name === 'Why')!;
+    expect(why.value).toContain('6 comps');
+    expect(why.value).toContain('37%');
+  });
+
   it('builds a pass reason menu', () => {
     const menu = buildPassReasonMenu(7);
     const select = menu.components[0] as { custom_id: string; options: { value: string }[] };
@@ -68,6 +89,37 @@ describe('handlers', () => {
       [id],
     );
     expect(rows[0]!.n).toBe(1);
+  });
+
+  it('recordPurchase is atomic and idempotent', async () => {
+    const { db, id, rec } = await setupRec();
+    expect(await recordPurchase(db, { recommendationId: id, amount: rec.buyTotal, actor: 'a', note: 'n' })).toBe(true);
+    expect(await recordPurchase(db, { recommendationId: id, amount: rec.buyTotal, actor: 'a', note: 'n' })).toBe(false);
+    const d = await db.query<{ n: number }>(`select count(*)::int as n from decisions where action = 'bought'`);
+    const l = await db.query<{ n: number }>(`select count(*)::int as n from bankroll_ledger where kind = 'purchase'`);
+    expect([d.rows[0]!.n, l.rows[0]!.n]).toEqual([1, 1]);
+  });
+
+  it('rejects malformed custom ids', async () => {
+    expect(parseCustomId('bought:12345678901')).toBeNull();
+    const { db } = await setupRec();
+    expect((await handleComponent(db, 'bought:99999999999999999999', [], 'j')).reply).toBe('Unknown action.');
+  });
+
+  it('ignores Pass after Bought', async () => {
+    const { db, id } = await setupRec();
+    await handleComponent(db, `bought:${id}`, [], 'james');
+    expect((await handleComponent(db, `pass:${id}`, [], 'james')).reply).toContain('Already bought');
+    expect((await handleComponent(db, `passreason:${id}`, ['price'], 'james')).reply).toContain('Already bought');
+    expect(await hasDecision(db, id, 'pass')).toBe(false);
+  });
+
+  it('stores unknown pass reasons as other', async () => {
+    const { db, id } = await setupRec();
+    await handleComponent(db, `passreason:${id}`, ['<script>'], 'james');
+    const { rows } = await db.query<{ reason: string }>(`select reason from decisions where action = 'pass'`);
+    expect(rows[0]!.reason).toBe('other');
+    expect(PASS_REASONS).toContain('other');
   });
 
   it('Pass asks for a reason, then logs it', async () => {

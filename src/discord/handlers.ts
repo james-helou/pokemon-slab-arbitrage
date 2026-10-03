@@ -1,8 +1,8 @@
-import { addEntry, availableCash } from '../bankroll/bankroll-repo.js';
+import { addEntry, availableCash, recordPurchase } from '../bankroll/bankroll-repo.js';
 import type { Db } from '../db/db.js';
-import { getRecommendation, insertDecision } from '../ledger/ledger-repo.js';
+import { getRecommendation, hasDecision, insertDecision } from '../ledger/ledger-repo.js';
 import { loadSettings, setSetting } from '../settings/settings.js';
-import { buildPassReasonMenu, type ActionRow } from './alert-payload.js';
+import { PASS_REASONS, buildPassReasonMenu, type ActionRow } from './alert-payload.js';
 
 export interface ComponentResult {
   reply: string;
@@ -12,8 +12,8 @@ export interface ComponentResult {
 type Action = 'bought' | 'pass' | 'watch' | 'passreason';
 
 export function parseCustomId(id: string): { action: Action; recommendationId: number } | null {
-  const m = /^(bought|pass|watch|passreason):(\d+)$/.exec(id);
-  return m ? { action: m[1] as Action, recommendationId: Number(m[2]) } : null;
+  const m = /^(bought|pass|watch|passreason):(\d{1,10})$/.exec(id);
+  return m && Number.isSafeInteger(Number(m[2])) ? { action: m[1] as Action, recommendationId: Number(m[2]) } : null;
 }
 
 const usd = (n: number) => `$${n.toFixed(2)}`;
@@ -26,16 +26,23 @@ export async function handleComponent(db: Db, customId: string, values: string[]
 
   switch (parsed.action) {
     case 'bought': {
-      // The partial unique index makes insertDecision the single gate: only the first insert debits the bankroll.
-      const inserted = await insertDecision(db, { recommendationId: rec.id, action: 'bought', reason: null, actor });
+      // One atomic statement: only the first call writes the decision and debits the bankroll.
+      const inserted = await recordPurchase(db, {
+        recommendationId: rec.id,
+        amount: rec.buyTotal,
+        actor,
+        note: rec.cardSnapshot.name,
+      });
       if (!inserted) return { reply: 'Already marked as bought.' };
-      await addEntry(db, { kind: 'purchase', amount: -rec.buyTotal, recommendationId: rec.id, note: rec.cardSnapshot.name });
       return { reply: `Marked bought for ${usd(rec.buyTotal)}. Available cash: ${usd(await availableCash(db))}.` };
     }
     case 'pass':
+      if (await hasDecision(db, rec.id, 'bought')) return { reply: 'Already bought, pass ignored.' };
       return { reply: 'Why pass? This trains the scorer.', components: [buildPassReasonMenu(rec.id)] };
     case 'passreason': {
-      const reason = values[0] ?? 'other';
+      if (await hasDecision(db, rec.id, 'bought')) return { reply: 'Already bought, pass ignored.' };
+      const picked = values[0] ?? 'other';
+      const reason = (PASS_REASONS as readonly string[]).includes(picked) ? picked : 'other';
       await insertDecision(db, { recommendationId: rec.id, action: 'pass', reason, actor });
       return { reply: `Passed (${reason}). Logged for learning.` };
     }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { deliverPending } from '../../src/discord/delivery.js';
 import { insertDelivery, insertRecommendation, type Route } from '../../src/ledger/ledger-repo.js';
+import { setSetting } from '../../src/settings/settings.js';
 import { silentLog } from '../../src/log.js';
 import { createTestDb } from '../helpers/test-db.js';
 import { makeNewRecommendation, seedCards } from '../helpers/fixtures.js';
@@ -51,5 +52,48 @@ describe('deliverPending', () => {
     }
     expect(failures).toBe(5);
     expect(logged.filter((m) => m === 'alert delivery dead')).toHaveLength(1);
+  });
+
+  it('does nothing while paused and sends after resume', async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    const id = (await insertRecommendation(db, makeNewRecommendation()))!;
+    await insertDelivery(db, id, 'alerts');
+    const send = async () => 'm';
+    await setSetting(db, 'paused', true);
+    expect(await deliverPending({ db, send, now: () => NOW, log: silentLog })).toEqual({ sent: 0, failed: 0 });
+    await setSetting(db, 'paused', false);
+    expect(await deliverPending({ db, send, now: () => NOW, log: silentLog })).toEqual({ sent: 1, failed: 0 });
+  });
+
+  it('does not markFailed when send succeeded but bookkeeping failed', async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    const id = (await insertRecommendation(db, makeNewRecommendation()))!;
+    await insertDelivery(db, id, 'alerts');
+    const logged: string[] = [];
+    const log = (_l: string, msg: string) => { logged.push(msg); };
+    const flaky = {
+      ...db,
+      query: (async (text: string, params?: unknown[]) => {
+        if (text.includes("set status = 'sent'") || text.includes("status = 'sent'") && text.includes('update')) throw new Error('db down');
+        return db.query(text, params);
+      }) as typeof db.query,
+    };
+    expect(await deliverPending({ db: flaky, send: async () => 'm', now: () => NOW, log })).toEqual({ sent: 1, failed: 0 });
+    expect(logged).toContain('alert sent but markDelivered failed');
+    const { rows } = await db.query<{ status: string; attempts: number }>('select status, attempts from alert_deliveries');
+    expect(rows[0]!.status).not.toBe('failed');
+  });
+
+  it('logs only the error message', async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    const id = (await insertRecommendation(db, makeNewRecommendation()))!;
+    await insertDelivery(db, id, 'alerts');
+    const err = Object.assign(new Error('boom'), { config: { headers: { Authorization: 'Bot SECRET' } } });
+    await deliverPending({ db, send: async () => { throw err; }, now: () => NOW, log: silentLog });
+    const { rows } = await db.query<{ last_error: string }>('select last_error from alert_deliveries');
+    expect(rows[0]!.last_error).toBe('boom');
   });
 });
