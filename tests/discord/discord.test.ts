@@ -69,6 +69,14 @@ describe('buildAlertPayload', () => {
     expect(select.custom_id).toBe('passreason:7');
     expect(select.options.map((o) => o.value)).toContain('fake_suspicion');
   });
+
+  it('keeps the sample-comps warning when the fixture is one of several sources', async () => {
+    const { rec } = await setupRec();
+    const mixed = buildAlertPayload({ ...rec, valuationSnapshot: { ...rec.valuationSnapshot, compsSource: 'fixture+own_db' } });
+    expect(mixed.content).toContain('SAMPLE COMPS');
+    const real = buildAlertPayload({ ...rec, valuationSnapshot: { ...rec.valuationSnapshot, compsSource: 'vendor+own_db' } });
+    expect(real.content).toBeUndefined();
+  });
 });
 
 describe('handlers', () => {

@@ -74,7 +74,9 @@ export function buildAlertPayload(r: StoredRecommendation): AlertPayload {
   if (r.listingSnapshot.imageUrl) embed.image = { url: r.listingSnapshot.imageUrl };
 
   return {
-    content: v.compsSource === 'fixture' ? '⚠️ SAMPLE COMPS, not real prices. Do not buy from this alert.' : undefined,
+    content: v.compsSource.split('+').includes('fixture')
+      ? '⚠️ SAMPLE COMPS, not real prices. Do not buy from this alert.'
+      : undefined,
     embeds: [embed],
     components: [
       {
