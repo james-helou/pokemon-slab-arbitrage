@@ -6,6 +6,8 @@ export interface TitleParse {
   gradeLabel: 'pristine' | 'black_label' | null;
   number: string | null;
   total: string | null;
+  /** TCGdex promo set id when the title carries a promo code (e.g. SWSH020) instead of an N/T number. */
+  promoSet: string | null;
   flags: string[];
 }
 
@@ -18,6 +20,18 @@ const VARIANT_RE = /\b(1st\s*ed(ition)?|first\s*edition|shadowless|reverse\s*hol
 const RAW_CANDIDATE_RE = /\b(candidate|ready|equivalent|potential)\b/i;
 const ANY_GRADER_RE = /\b(PSA|CGC|BGS|BECKETT|SGC|TAG)\b/gi;
 const NOT_AUTHENTIC_RE = /\b(proxy|custom|replica|orica|fan\s*art)\b/i;
+
+const PROMO_SETS: Record<string, string> = { SVP: 'svp', SWSH: 'swshp', SM: 'smp', XY: 'xyp', BW: 'bwp' };
+const PROMO_RE = /(?:^|[\s#(])(SVP|SWSH|SM|XY|BW)[\s-]?(\d{1,3})(?![\d/])/i;
+const PROMO_ONLY_RE = /^\s*#?(SVP|SWSH|SM|XY|BW)[\s-]?(\d{1,3})\s*$/i;
+
+/** Promo code to { promoSet, number }. SVP numbers are plain digits in TCGdex; the others keep their prefix (SWSH020). */
+export function parsePromo(s: string, anchored = false): { promoSet: string; number: string } | null {
+  const m = (anchored ? PROMO_ONLY_RE : PROMO_RE).exec(s);
+  if (!m) return null;
+  const prefix = m[1]!.toUpperCase();
+  return { promoSet: PROMO_SETS[prefix]!, number: prefix === 'SVP' ? String(Number.parseInt(m[2]!, 10)) : prefix + m[2]! };
+}
 
 export function normalizeNumber(n: string): string {
   return /^\d+$/.test(n) ? String(Number.parseInt(n, 10)) : n.toUpperCase();
@@ -42,12 +56,15 @@ export function parseTitle(title: string): TitleParse {
   const n = NUMBER_RE.exec(title);
   const gradeLabel = /\bpristine\b/i.test(title) ? 'pristine' : /black[\s-]*label/i.test(title) ? 'black_label' : null;
 
+  const promo = n ? null : parsePromo(title);
+
   return {
     grader: g ? toGrader(g[1]!) : null,
     grade: g ? Number.parseFloat(g[2]!) : null,
     gradeLabel,
-    number: n ? normalizeNumber(n[1]!) : null,
+    number: n ? normalizeNumber(n[1]!) : (promo?.number ?? null),
     total: n ? normalizeNumber(n[2]!) : null,
+    promoSet: promo?.promoSet ?? null,
     flags,
   };
 }

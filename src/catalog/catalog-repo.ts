@@ -47,6 +47,27 @@ export async function findCandidates(db: Db, number: string, total: string | nul
   }));
 }
 
+/** Promo numbers compare ignoring zero padding: SWSH020 and SWSH20 are the same card, as are 085 and 85. */
+function canonPromo(n: string): string {
+  const m = /^([A-Z]*)0*(\d+)$/.exec(n.replace(/\s+/g, '').toUpperCase());
+  return m ? `${m[1]}${m[2]}` : n.toUpperCase();
+}
+
+/** Cards of one promo set with this number (promo codes have no printed total). */
+export async function findPromoCandidates(db: Db, setId: string, number: string): Promise<CardCandidate[]> {
+  const { rows } = await db.query<{ id: string; name: string; number: string; set_printed_total: number | null }>(
+    `select id, name, number, set_printed_total from cards where set_id = $1 and language = 'en' order by id`,
+    [setId],
+  );
+  const want = canonPromo(number);
+  return rows
+    .filter((r) => canonPromo(r.number) === want)
+    .map((r) => ({
+      id: r.id, name: r.name, number: r.number,
+      setPrintedTotal: r.set_printed_total === null ? null : Number(r.set_printed_total),
+    }));
+}
+
 export async function getCard(db: Db, id: string): Promise<CardRow | null> {
   const { rows } = await db.query<Record<string, unknown>>('select * from cards where id = $1', [id]);
   const r = rows[0];

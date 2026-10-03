@@ -1,5 +1,5 @@
 import { availableCash } from '../bankroll/bankroll-repo.js';
-import { findCandidates, getCard } from '../catalog/catalog-repo.js';
+import { findCandidates, findPromoCandidates, getCard } from '../catalog/catalog-repo.js';
 import type { Channel } from '../channels/channels.js';
 import type { Db } from '../db/db.js';
 import type { Listing, Match, Valuation, ValuationKey } from '../domain/types.js';
@@ -49,7 +49,7 @@ export async function evaluateListing(
   channels: Channel[],
 ): Promise<EvaluateOutcome> {
   const { db } = deps;
-  const lookup: CandidateLookup = (n, t) => findCandidates(db, n, t);
+  const lookup: CandidateLookup = (n, t, promo) => (promo ? findPromoCandidates(db, promo, n) : findCandidates(db, n, t));
 
   const first = await matchListing({ title: listing.title, aspects: listing.aspects }, lookup);
   await insertMatch(db, listing, first, 'title');

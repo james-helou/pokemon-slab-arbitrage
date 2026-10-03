@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { findCandidates, getCard } from '../../src/catalog/catalog-repo.js';
+import { findCandidates, findPromoCandidates, getCard } from '../../src/catalog/catalog-repo.js';
 import { skippedTooMany, syncCatalog } from '../../src/catalog/sync.js';
 import { matchListing } from '../../src/matcher/matcher.js';
 import { silentLog } from '../../src/log.js';
@@ -114,5 +115,32 @@ describe('catalog', () => {
     const r = await syncCatalog(db, failing, silentLog, { sleep: async () => {}, maxSkippedRatio: 1 });
     expect(r.skippedSets).toEqual(['c']);
     expect(await getCard(db, 'old-1')).not.toBeNull();
+  });
+
+  it('finds promo cards by set and number, ignoring zero padding', async () => {
+    const db = await createTestDb();
+    await seedCards(db, [
+      { id: 'swshp-SWSH020', name: 'Pikachu', number: 'SWSH020', setId: 'swshp', setName: 'SWSH Black Star Promos', setPrintedTotal: 307 },
+      { id: 'xyp-XY95', name: 'Pikachu', number: 'XY95', setId: 'xyp', setName: 'XY Black Star Promos', setPrintedTotal: 211 },
+      { id: 'svp-085', name: 'Pikachu with Grey Felt Hat', number: '85', setId: 'svp', setName: 'SVP Black Star Promos', setPrintedTotal: 225 },
+    ]);
+    expect((await findPromoCandidates(db, 'swshp', 'SWSH20')).map((c) => c.id)).toEqual(['swshp-SWSH020']);
+    expect((await findPromoCandidates(db, 'swshp', 'SWSH020')).map((c) => c.id)).toEqual(['swshp-SWSH020']);
+    expect((await findPromoCandidates(db, 'xyp', 'XY095')).map((c) => c.id)).toEqual(['xyp-XY95']);
+    expect((await findPromoCandidates(db, 'svp', '85')).map((c) => c.id)).toEqual(['svp-085']);
+    expect(await findPromoCandidates(db, 'smp', 'SM20')).toEqual([]);
+  });
+
+  it('matches a real synced svp promo from title and aspect', async () => {
+    const db = await createTestDb();
+    const svp = JSON.parse(readFileSync('tests/fixtures/tcgdex/svp.json', 'utf8'));
+    const f = (async (url: string) =>
+      new Response(JSON.stringify(url.endsWith('/sets') ? [{ id: 'svp' }] : svp), { status: url.includes('/series/') ? 404 : 200 })) as unknown as typeof fetch;
+    await syncCatalog(db, f, silentLog, { sleep: async () => {} });
+    const lookup = (n: string, t: string | null, promo?: string) => (promo ? findPromoCandidates(db, promo, n) : findCandidates(db, n, t));
+    const a = await matchListing({ title: 'PSA 10 Pikachu with Grey Felt Hat SVP 085', aspects: {} }, lookup);
+    expect(a.match?.cardId).toBe('svp-085');
+    const b = await matchListing({ title: 'Pikachu with Grey Felt Hat PSA 10', aspects: { 'Card Number': 'SVP085' } }, lookup);
+    expect(b.match?.cardId).toBe('svp-085');
   });
 });

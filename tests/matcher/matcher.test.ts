@@ -124,3 +124,53 @@ describe('graderFromAspect', () => {
     ['Unknown', null],
   ])('%s -> %s', (v, g) => expect(graderFromAspect(v)).toBe(g));
 });
+
+describe('matchListing promo cards', () => {
+  const PIKA: CardCandidate = { id: 'svp-085', name: 'Pikachu with Grey Felt Hat', number: '85', setPrintedTotal: 225 };
+  const spy = (cands: CardCandidate[]) => {
+    const calls: unknown[][] = [];
+    const lookup: CandidateLookup = async (...a) => { calls.push(a); return cands; };
+    return { lookup, calls };
+  };
+
+  it.each([
+    ['PSA 10 Pikachu with Grey Felt Hat SVP085', 'svp', '85'],
+    ['PSA 10 Pikachu with Grey Felt Hat SVP 085', 'svp', '85'],
+    ['PSA 10 Pikachu SWSH020 Black Star Promo', 'swshp', 'SWSH020'],
+    ['PSA 10 Pikachu SM214 Promo', 'smp', 'SM214'],
+    ['PSA 10 Pikachu XY95 Promo', 'xyp', 'XY95'],
+    ['PSA 10 Pikachu BW12 Promo', 'bwp', 'BW12'],
+  ])('looks up %s in its promo set', async (title, set, number) => {
+    const s = spy([{ ...PIKA, id: 'x-1', name: 'Pikachu' }]);
+    const r = await matchListing({ title, aspects: {} }, s.lookup);
+    expect(s.calls).toEqual([[number, null, set]]);
+    expect(r.match).toMatchObject({ cardId: 'x-1', confidence: 0.855 });
+  });
+
+  it('does not match a promo number whose name is wrong at high confidence', async () => {
+    const r = await matchListing({ title: 'PSA 10 Charizard SVP085', aspects: {} }, spy([PIKA]).lookup);
+    expect(r.match?.confidence ?? 0).toBeLessThan(0.85);
+    expect(r.reasons).toContain('name_mismatch');
+  });
+
+  it('reads a promo Card Number aspect', async () => {
+    const s = spy([PIKA]);
+    const r = await matchListing(
+      { title: 'Pikachu with Grey Felt Hat PSA 10', aspects: { ...ASPECTS, 'Card Number': 'SVP085' } },
+      s.lookup,
+    );
+    expect(s.calls).toEqual([['85', null, 'svp']]);
+    expect(r.match).toMatchObject({ cardId: 'svp-085', confidence: 0.95 });
+  });
+
+  it('uses N/T, not the promo set, when both appear', async () => {
+    const s = spy([CHARIZARD]);
+    await matchListing({ title: 'PSA 10 Charizard ex 199/165 SWSH020', aspects: {} }, s.lookup);
+    expect(s.calls).toEqual([['199', '165', undefined]]);
+  });
+
+  it('gives number_unknown for an unknown prefix', async () => {
+    const r = await matchListing({ title: 'PSA 10 Lugia HGSS05 Promo', aspects: {} }, spy([]).lookup);
+    expect(r.reasons).toEqual(['number_unknown']);
+  });
+});

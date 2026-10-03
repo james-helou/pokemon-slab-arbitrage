@@ -1,10 +1,10 @@
 import type { CardCandidate } from '../catalog/catalog-repo.js';
 import type { Grader, Match } from '../domain/types.js';
-import { normalizeNumber, parseTitle } from './title-parse.js';
+import { normalizeNumber, parsePromo, parseTitle } from './title-parse.js';
 
-export const MATCHER_VERSION = 'v1.0.0';
+export const MATCHER_VERSION = 'v1.1.0';
 
-export type CandidateLookup = (number: string, total: string | null) => Promise<CardCandidate[]>;
+export type CandidateLookup = (number: string, total: string | null, promoSet?: string) => Promise<CardCandidate[]>;
 
 export interface MatchResult {
   match: Match | null;
@@ -67,8 +67,13 @@ export async function matchListing(
   let number = p.number;
   let numberWithoutTotal = false;
   let total = p.total;
+  let promoSet = p.promoSet;
   const aspectNumber = input.aspects['Card Number'];
-  if (!number && aspectNumber) {
+  const aspectPromo = !number && aspectNumber ? parsePromo(aspectNumber, true) : null;
+  if (aspectPromo) {
+    number = aspectPromo.number;
+    promoSet = aspectPromo.promoSet;
+  } else if (!number && aspectNumber) {
     const [n, t] = aspectNumber.split('/').map((x) => x.trim());
     number = n ? normalizeNumber(n.replace(/^#/, '')) : null;
     total = t ? normalizeNumber(t) : null;
@@ -77,7 +82,7 @@ export async function matchListing(
   if (!number) return { match: null, reasons: ['number_unknown'] };
 
   const reasons: string[] = [];
-  const cands = await lookup(number, total);
+  const cands = await lookup(number, total, promoSet ?? undefined);
   const named = cands.filter((c) => nameInTitle(c.name, input.title));
   let card: CardCandidate;
   let confidence: number;

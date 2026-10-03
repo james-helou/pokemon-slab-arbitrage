@@ -61,3 +61,31 @@ describe('normalizeNumber', () => {
     expect(normalizeNumber('tg05')).toBe('TG05');
   });
 });
+
+describe('parseTitle promo codes', () => {
+  it.each([
+    ['PSA 10 Pikachu with Grey Felt Hat SVP085', 'svp', '85'],
+    ['PSA 10 Pikachu with Grey Felt Hat SVP 085 Van Gogh Promo', 'svp', '85'],
+    ['PSA 10 Pikachu SWSH020 Black Star Promo', 'swshp', 'SWSH020'],
+    ['PSA 10 Mewtwo SM214 Black Star Promo', 'smp', 'SM214'],
+    ['PSA 10 Pikachu XY95 Promo', 'xyp', 'XY95'],
+    ['PSA 9 Reshiram BW 12 Promo', 'bwp', 'BW12'],
+    ['PSA 10 Mew ex 151 Promo SVP 053', 'svp', '53'],
+  ])('%s', (title, promoSet, number) => {
+    const p = parseTitle(title);
+    expect(p.promoSet).toBe(promoSet);
+    expect(p.number).toBe(number);
+    expect(p.total).toBeNull();
+  });
+
+  it('prefers N/T over a promo code', () => {
+    const p = parseTitle('PSA 10 Charizard ex 199/165 SWSH020');
+    expect(p).toMatchObject({ promoSet: null, number: '199', total: '165' });
+  });
+
+  it('ignores unknown prefixes and the grade', () => {
+    const p = parseTitle('PSA 10 Lugia HGSS05 Promo');
+    expect(p.promoSet).toBeNull();
+    expect(p.number).toBeNull();
+  });
+});
