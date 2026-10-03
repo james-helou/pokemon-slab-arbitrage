@@ -6,6 +6,8 @@ const BASE = 'https://api.tcgdex.net/v2/en';
 const MAX_TRIES = 4;
 const BASE_DELAY_MS = 500;
 const CONCURRENCY = 4;
+/** Digital or otherwise non-physical series. TCG Pocket (tcgp) card names would cause ambiguous matches. */
+export const EXCLUDED_SERIES = ['tcgp'];
 
 interface TcgdexSetBrief {
   id: string;
@@ -14,6 +16,7 @@ interface TcgdexSetBrief {
 interface TcgdexSet {
   id: string;
   name: string;
+  serie?: { id: string };
   cardCount?: { official?: number; total?: number };
   cards?: { id: string; localId: string; name: string }[];
 }
@@ -51,7 +54,19 @@ async function getJson<T>(fetchFn: typeof fetch, path: string, sleep: (ms: numbe
 /** Fetches every English card. A set that keeps failing is skipped and reported, not fatal. */
 export async function fetchAllCards(fetchFn: typeof fetch, log: Log, opts: ClientOptions = {}): Promise<FetchAllResult> {
   const sleep = opts.sleep ?? defaultSleep;
-  const sets = await getJson<TcgdexSetBrief[]>(fetchFn, '/sets', sleep);
+  const allSets = await getJson<TcgdexSetBrief[]>(fetchFn, '/sets', sleep);
+  // The brief set list has no series field, so look up each excluded series' set ids up front.
+  const excludedIds = new Set<string>();
+  for (const serie of EXCLUDED_SERIES) {
+    try {
+      const body = await getJson<{ sets?: { id: string }[] }>(fetchFn, `/series/${encodeURIComponent(serie)}`, sleep);
+      for (const s of body.sets ?? []) excludedIds.add(s.id);
+    } catch (err) {
+      log('warn', 'excluded series lookup failed, relying on set detail', { serie, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  const sets = allSets.filter((s) => !excludedIds.has(s.id));
+  let excluded = allSets.length - sets.length;
   const bySet: CardRow[][] = sets.map(() => []);
   const skippedSets: string[] = [];
   let next = 0;
@@ -62,6 +77,10 @@ export async function fetchAllCards(fetchFn: typeof fetch, log: Log, opts: Clien
       const id = sets[i]!.id;
       try {
         const set = await getJson<TcgdexSet>(fetchFn, `/sets/${encodeURIComponent(id)}`, sleep);
+        if (set.serie && EXCLUDED_SERIES.includes(set.serie.id)) {
+          excluded++;
+          continue;
+        }
         bySet[i] = (set.cards ?? []).map((c) => ({
           id: c.id, name: c.name, number: normalizeNumber(c.localId.replace(/\s+/g, '')),
           setId: set.id, setName: set.name, setPrintedTotal: set.cardCount?.official ?? null,
@@ -74,5 +93,6 @@ export async function fetchAllCards(fetchFn: typeof fetch, log: Log, opts: Clien
     }
   };
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, sets.length) }, worker));
+  log('info', 'catalog excluded sets in excluded series', { excluded, series: EXCLUDED_SERIES });
   return { cards: bySet.flat(), skippedSets };
 }

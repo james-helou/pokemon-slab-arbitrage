@@ -101,4 +101,29 @@ describe('tcgdex client', () => {
     const f = fakeFetch({ '/sets': () => json({}, 500) });
     await expect(fetchAllCards(f.fn, silentLog, noSleep)).rejects.toThrow(/sets/);
   });
+
+  it('excludes digital TCG Pocket (tcgp) sets without fetching them and logs the count', async () => {
+    const logs: { m: string; c?: Record<string, unknown> }[] = [];
+    const sets = [...(fx('sets') as { id: string }[]).filter((s) => s.id === 'base1'), { id: 'A1', name: 'Genetic Apex' }, { id: 'P-A', name: 'Promo-A' }];
+    const f = fakeFetch({
+      '/sets': () => json(sets),
+      '/series/tcgp': () => json({ id: 'tcgp', sets: [{ id: 'A1' }, { id: 'P-A' }] }),
+      '/sets/base1': () => json(fx('base1')),
+    });
+    const r = await fetchAllCards(f.fn, (_l, m, c) => void logs.push({ m, c }), noSleep);
+    expect(r.cards.map((c) => c.setId)).toEqual(['base1']);
+    expect(r.skippedSets).toEqual([]);
+    expect(f.calls.some((c) => c.endsWith('/sets/A1') || c.endsWith('/sets/P-A'))).toBe(false);
+    expect(logs.find((l) => l.m.includes('excluded'))?.c).toMatchObject({ excluded: 2 });
+  });
+
+  it('also drops a set whose detail says it belongs to an excluded series', async () => {
+    const f = fakeFetch({
+      '/sets': () => json([{ id: 'A9', name: 'Future Pocket' }]),
+      '/sets/A9': () => json({ id: 'A9', name: 'Future Pocket', serie: { id: 'tcgp' }, cardCount: { official: 1 }, cards: [{ id: 'A9-001', localId: '001', name: 'X' }] }),
+    });
+    const r = await fetchAllCards(f.fn, silentLog, noSleep);
+    expect(r.cards).toEqual([]);
+    expect(r.skippedSets).toEqual([]);
+  });
 });
