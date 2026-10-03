@@ -81,12 +81,15 @@ export async function runOutcomes(deps: OutcomeDeps): Promise<OutcomeRunSummary>
   sum.due = due.length;
   for (const rec of due) {
     try {
+      // Re-check the kill switch per recommendation so /pause takes effect mid-run.
+      if ((await loadSettings(deps.db)).paused) break;
+      // Value first: a failing valuation must not spend an aux getItem every run.
+      const valuation = await deps.valuate({ cardId: rec.cardId, grader: rec.grader, grade: rec.grade }, settings);
       const obs = await observe(deps, settings, rec.externalId);
       if (!obs) {
         sum.deferred++;
         continue;
       }
-      const valuation = await deps.valuate({ cardId: rec.cardId, grader: rec.grader, grade: rec.grade }, settings);
       const cf = valuation ? counterfactualNet(channels, valuation.value, rec.buyTotal) : null;
       const decision = await decisionSnapshot(deps.db, rec.id);
       for (const horizon of rec.horizons) {

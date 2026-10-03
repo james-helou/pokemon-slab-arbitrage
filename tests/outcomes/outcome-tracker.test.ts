@@ -133,4 +133,35 @@ describe('runOutcomes', () => {
     expect((await runOutcomes(deps)).status).toBe('paused');
     expect(state.getItemCalls).toBe(0);
   });
+
+  it('never spends an aux call when the valuation fails', async () => {
+    const { db, state, deps } = await setup();
+    state.valuateThrows = true;
+    await runOutcomes(deps);
+    expect(state.getItemCalls).toBe(0);
+    const { rows } = await db.query(`select 1 from api_usage where source = 'ebay_aux'`);
+    expect(rows).toHaveLength(0);
+  });
+
+  it('processes an already-confirmed gone listing even when the aux budget is spent', async () => {
+    const { db, state, deps, outcomes } = await setup();
+    await markGone(db, { source: 'ebay', externalId: SUMMARY.itemId }, new Date('2026-10-03T12:05:00Z'), 'not_found');
+    await setSetting(db, 'auxGetItemDailyCap', 0);
+    expect(await runOutcomes(deps)).toMatchObject({ written: 1, deferred: 0 });
+    expect((await outcomes())[0]!.listing_final_state).toBe('not_found');
+    expect(state.getItemCalls).toBe(0);
+  });
+
+  it('re-checks the pause switch between recommendations', async () => {
+    const { db, deps, outcomes } = await setup();
+    await insertRecommendation(db, makeNewRecommendation({ externalId: 'v1|222|0' }));
+    const inner = deps.valuate;
+    deps.valuate = async (key, settings) => {
+      await setSetting(db, 'paused', true);
+      return inner(key, settings);
+    };
+    const r = await runOutcomes(deps);
+    expect(r).toMatchObject({ status: 'ok', due: 2, written: 1 });
+    expect(await outcomes()).toHaveLength(1);
+  });
 });

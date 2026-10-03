@@ -9,6 +9,7 @@ describe('iso week', () => {
     ['2026-10-05T00:00:00Z', '2026-W41'],
     ['2026-01-01T00:00:00Z', '2026-W01'],
     ['2027-01-01T12:00:00Z', '2026-W53'],
+    ['2026-12-31T12:00:00Z', '2026-W53'],
   ])('%s is %s', (iso, week) => {
     expect(isoWeekOf(new Date(iso))).toBe(week);
   });
@@ -19,6 +20,7 @@ describe('iso week', () => {
     expect(end.toISOString()).toBe('2026-10-05T00:00:00.000Z');
     expect(isoWeekRange('2026-W01').start.toISOString()).toBe('2025-12-29T00:00:00.000Z');
     expect(isoWeekRange('2026-W53').start.toISOString()).toBe('2026-12-28T00:00:00.000Z');
+    expect(isoWeekRange('2027-W01').start.toISOString()).toBe('2027-01-04T00:00:00.000Z');
   });
 
   it('rejects invalid labels', () => {
