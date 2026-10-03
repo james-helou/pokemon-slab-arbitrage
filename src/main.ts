@@ -8,10 +8,8 @@ import { startBot } from './discord/bot.js';
 import { deliverPending } from './discord/delivery.js';
 import { log } from './log.js';
 import { every } from './loop.js';
-import { loadFixtureCompsSource } from './oracle/comps-source.js';
-import { compositeCompsSource } from './oracle/composite-source.js';
 import { getValuation } from './oracle/oracle.js';
-import { ownCompsSource } from './oracle/own-comps-source.js';
+import { buildOracleDeps } from './oracle/oracle-wiring.js';
 import { runOutcomes } from './outcomes/outcome-tracker.js';
 import type { EvaluateDeps } from './pipeline/evaluate.js';
 import { scanCycle } from './pipeline/scan-cycle.js';
@@ -40,10 +38,9 @@ async function main() {
     clientId: cfg.EBAY_CLIENT_ID, clientSecret: cfg.EBAY_CLIENT_SECRET, fetchFn: fetch, now,
     categoryIds: cfg.EBAY_CATEGORY_IDS, query: cfg.EBAY_QUERY, minPrice: cfg.EBAY_MIN_PRICE, budget,
   });
-  // Paid vendor slots in here as another part once chosen; the fixture part keeps the SAMPLE COMPS banner on.
-  const fixture = await loadFixtureCompsSource(cfg.COMPS_FIXTURE_PATH, now);
-  const source = compositeCompsSource([{ source: fixture }, { source: ownCompsSource(db, now) }], log);
-  const valuate: EvaluateDeps['valuate'] = (key, settings) => getValuation({ db, source, now }, key, settings);
+  // COMPS_SOURCE picks fixture (sample comps) or poketrace (aggregates + own DB comps, fixture excluded).
+  const oracle = await buildOracleDeps(cfg, { db, now, log, fetch });
+  const valuate: EvaluateDeps['valuate'] = (key, settings) => getValuation(oracle, key, settings);
 
   const bot = await startBot({
     token: cfg.DISCORD_TOKEN, appId: cfg.DISCORD_APP_ID, guildId: cfg.DISCORD_GUILD_ID,

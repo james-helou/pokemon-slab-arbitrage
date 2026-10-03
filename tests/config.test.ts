@@ -37,4 +37,30 @@ describe('loadConfig', () => {
     expect(loadConfig({ ...ENV, DISCORD_REPORT_CHANNEL_ID: '' }).DISCORD_REPORT_CHANNEL_ID).toBeUndefined();
     expect(loadConfig({ ...ENV, DISCORD_REPORT_CHANNEL_ID: '5' }).DISCORD_REPORT_CHANNEL_ID).toBe('5');
   });
+  it('defaults COMPS_SOURCE to fixture with no PokeTrace key', () => {
+    const c = loadConfig(ENV);
+    expect(c.COMPS_SOURCE).toBe('fixture');
+    expect(c.POKETRACE_API_KEY).toBeUndefined();
+    expect(loadConfig({ ...ENV, COMPS_SOURCE: '', POKETRACE_API_KEY: '' })).toMatchObject({ COMPS_SOURCE: 'fixture' });
+  });
+  it('accepts COMPS_SOURCE=poketrace with a key', () => {
+    const c = loadConfig({ ...ENV, COMPS_SOURCE: 'poketrace', POKETRACE_API_KEY: 'pt-key' });
+    expect(c).toMatchObject({ COMPS_SOURCE: 'poketrace', POKETRACE_API_KEY: 'pt-key' });
+  });
+  it('rejects an unknown COMPS_SOURCE', () => {
+    expect(() => loadConfig({ ...ENV, COMPS_SOURCE: 'ebay' })).toThrow(/COMPS_SOURCE/);
+  });
+  it('rejects COMPS_SOURCE=poketrace without a key, with a clear key-free message', () => {
+    for (const key of [undefined, '']) {
+      let message = '';
+      try {
+        loadConfig({ ...ENV, COMPS_SOURCE: 'poketrace', POKETRACE_API_KEY: key, DISCORD_TOKEN: 'discord-s3cret-token' });
+      } catch (err) {
+        message = err instanceof Error ? err.message : String(err);
+      }
+      expect(message).toMatch(/POKETRACE_API_KEY/);
+      expect(message).toMatch(/required when COMPS_SOURCE=poketrace/);
+      expect(message).not.toContain('discord-s3cret-token');
+    }
+  });
 });
