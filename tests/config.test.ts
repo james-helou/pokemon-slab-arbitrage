@@ -32,4 +32,9 @@ describe('loadConfig', () => {
     expect(message).toMatch(/EBAY_MIN_PRICE/);
     for (const v of [...Object.values(secrets), 'not-a-number-s3cret']) expect(message).not.toContain(v);
   });
+  it('treats DISCORD_REPORT_CHANNEL_ID as optional', () => {
+    expect(loadConfig(ENV).DISCORD_REPORT_CHANNEL_ID).toBeUndefined();
+    expect(loadConfig({ ...ENV, DISCORD_REPORT_CHANNEL_ID: '' }).DISCORD_REPORT_CHANNEL_ID).toBeUndefined();
+    expect(loadConfig({ ...ENV, DISCORD_REPORT_CHANNEL_ID: '5' }).DISCORD_REPORT_CHANNEL_ID).toBe('5');
+  });
 });

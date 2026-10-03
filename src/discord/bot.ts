@@ -24,6 +24,7 @@ export interface BotOptions {
   appId: string;
   guildId: string;
   channelIds: Record<Route, string>;
+  reportChannelId: string;
   db: Db;
   ebayUsedToday: () => Promise<number>;
   log: Log;
@@ -31,6 +32,8 @@ export interface BotOptions {
 
 export interface Bot {
   send(route: Route, payload: AlertPayload): Promise<string>;
+  /** Plain message + one text attachment (weekly report). Content is truncated to Discord's 2000-char limit. */
+  sendReport(content: string, file: { name: string; body: string }): Promise<string>;
   stop(): Promise<void>;
 }
 
@@ -72,6 +75,15 @@ export async function startBot(o: BotOptions): Promise<Bot> {
       const channel = await client.channels.fetch(o.channelIds[route]);
       if (!channel || !channel.isSendable()) throw new Error(`Discord channel for ${route} is not sendable`);
       const msg = await channel.send(payload as MessageCreateOptions);
+      return msg.id;
+    },
+    async sendReport(content, file) {
+      const channel = await client.channels.fetch(o.reportChannelId);
+      if (!channel || !channel.isSendable()) throw new Error('Discord report channel is not sendable');
+      const msg = await channel.send({
+        content: content.slice(0, 2000),
+        files: [{ attachment: Buffer.from(file.body, 'utf8'), name: file.name }],
+      });
       return msg.id;
     },
     async stop() {
