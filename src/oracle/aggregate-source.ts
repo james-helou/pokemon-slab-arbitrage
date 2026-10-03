@@ -17,9 +17,10 @@ export interface AggregatePrice {
 /** A vendor that returns pre-aggregated sold prices for a graded card instead of individual sales. */
 export interface AggregatePriceSource {
   /**
-   * null = no usable data for this key (including a failed id mapping, which the source logs). Throwing means the
-   * vendor failed fetching prices; the valuation must fail with it. Prices are raw sold prices: the oracle applies
-   * the Best Offer discount.
+   * null = no usable data for this key, including a failed id mapping or a vendor outage, which the source logs; the
+   * oracle then falls back to comps. Throwing fails the valuation (and burns one of the listing's eval attempts), so
+   * sources should return null for vendor failures. Prices are raw sold prices: the oracle applies the Best Offer
+   * discount.
    */
   fetchAggregate(key: ValuationKey & { gradeLabel?: 'pristine' | 'black_label' | null }): Promise<AggregatePrice | null>;
 }

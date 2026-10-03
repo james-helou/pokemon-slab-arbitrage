@@ -1,7 +1,7 @@
 import type { ValuationKey } from '../domain/types.js';
 import type { Log } from '../log.js';
 import type { AggregatePrice, AggregatePriceSource } from '../oracle/aggregate-source.js';
-import { PoketraceHttpError, type PoketraceClient } from './client.js';
+import { PoketraceHttpError, PoketraceUnavailableError, type PoketraceClient } from './client.js';
 
 type Key = Parameters<AggregatePriceSource['fetchAggregate']>[0];
 
@@ -61,9 +61,10 @@ export interface PoketraceAggregateDeps {
 /**
  * Conservative US eBay sold aggregates from PokeTrace's card detail: median30d, else median7d, else avg30d (never the
  * undocumented-window avg). null when the vendor's confidence is low, the data is stale or undated, or the card is not
- * the US market priced in USD (a missing currency counts as not USD). A mapping failure is logged and returns null
- * (comps path runs); a card detail failure throws, except 404, which invalidates the mapping (best-effort: a failed
- * invalidation is logged) and returns null.
+ * the US market priced in USD (a missing currency counts as not USD). Never throws: a mapping failure or a card detail
+ * failure (including PoketraceUnavailableError while the client's breaker is open) logs one key-free warn line and
+ * returns null, so the comps path runs. A throw would fail the valuation and burn the listing's eval attempts. A 404
+ * invalidates the mapping (best-effort: a failed invalidation is logged) and returns null.
  */
 export function poketraceAggregateSource(deps: PoketraceAggregateDeps): AggregatePriceSource {
   const maxAgeMs = (deps.maxAgeHours ?? DEFAULT_MAX_AGE_HOURS) * 3_600_000;
@@ -84,7 +85,16 @@ export function poketraceAggregateSource(deps: PoketraceAggregateDeps): Aggregat
       try {
         ({ data } = await deps.client.get<{ data?: CardDetail }>(`/cards/${encodeURIComponent(id)}`));
       } catch (err) {
-        if (!(err instanceof PoketraceHttpError && err.status === 404)) throw err;
+        if (!(err instanceof PoketraceHttpError && err.status === 404)) {
+          // No message: errors can carry request details. The comps path still runs (never disappearing-only).
+          if (err instanceof PoketraceUnavailableError) {
+            deps.log?.('warn', 'poketrace unavailable (breaker open), using comps', { cardId: key.cardId });
+          } else {
+            const status = err instanceof PoketraceHttpError ? err.status : undefined;
+            deps.log?.('warn', 'poketrace card fetch failed, using comps', { cardId: key.cardId, status });
+          }
+          return null;
+        }
         try {
           await deps.invalidateId?.(key.cardId);
         } catch {

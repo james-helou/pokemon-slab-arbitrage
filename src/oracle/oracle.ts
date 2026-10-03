@@ -8,7 +8,7 @@ import { computeValuation, ORACLE_VERSION } from './valuation.js';
 export interface OracleDeps {
   db: Db;
   source: CompsSource;
-  /** Preferred when it returns enough sales; a throw fails the valuation (never value on partial data). */
+  /** Preferred when it returns enough sales; null falls back to comps, a throw fails the valuation. */
   aggregate?: AggregatePriceSource;
   /**
    * Set when a real vendor is configured: ignores comps rows persisted by the fixture source (source_ref 'fixture:%')

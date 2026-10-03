@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { poketraceAggregateSource, tierKey } from '../../src/poketrace/aggregate-source.js';
-import { PoketraceHttpError, type PoketraceClient } from '../../src/poketrace/client.js';
+import { PoketraceHttpError, PoketraceUnavailableError, type PoketraceClient } from '../../src/poketrace/client.js';
 
 const NOW = new Date('2026-10-03T12:00:00Z');
 const KEY = { cardId: 'sv03.5-199', grader: 'PSA' as const, grade: 10 };
@@ -129,16 +129,39 @@ describe('poketraceAggregateSource', () => {
       expect(await src.fetchAggregate(KEY)).toBeNull();
     });
 
-    it('a failure fetching the card detail still throws (without invalidating the mapping)', async () => {
+    it('a non-404 failure fetching the card detail logs one key-free line and returns null (no invalidation)', async () => {
       const invalidated: string[] = [];
+      const lines: { level: string; msg: string; data?: Record<string, unknown> }[] = [];
       const client: PoketraceClient = {
-        async get() { throw new PoketraceHttpError('poketrace /cards/u1: status 503', 503); },
+        async get() { throw new PoketraceHttpError('poketrace /cards/u1: status 503 sk-secret', 503); },
       };
       const src = poketraceAggregateSource({
         client, now: () => NOW, resolveId: async () => 'u1', invalidateId: async (id) => { invalidated.push(id); },
+        log: (level, msg, data) => lines.push({ level, msg, data }),
       });
-      await expect(src.fetchAggregate(KEY)).rejects.toThrow('503');
+      expect(await src.fetchAggregate(KEY)).toBeNull();
       expect(invalidated).toEqual([]);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]!.level).toBe('warn');
+      expect(JSON.stringify(lines[0])).not.toContain('sk-secret');
+    });
+
+    it('an unavailable PokeTrace (breaker open) makes the aggregate return null with one warn line', async () => {
+      const lines: { level: string; msg: string; data?: Record<string, unknown> }[] = [];
+      const client: PoketraceClient = { async get() { throw new PoketraceUnavailableError(); } };
+      const src = poketraceAggregateSource({
+        client, now: () => NOW, resolveId: async () => 'u1', log: (level, msg, data) => lines.push({ level, msg, data }),
+      });
+      expect(await src.fetchAggregate(KEY)).toBeNull();
+      expect(lines).toHaveLength(1);
+      expect(lines[0]!.level).toBe('warn');
+      expect(lines[0]!.data).toMatchObject({ cardId: KEY.cardId });
+    });
+
+    it('any other card-fetch error also returns null instead of throwing', async () => {
+      const client: PoketraceClient = { async get() { throw new TypeError('bad json'); } };
+      const src = poketraceAggregateSource({ client, now: () => NOW, resolveId: async () => 'u1' });
+      expect(await src.fetchAggregate(KEY)).toBeNull();
     });
 
     it('a 404 on the card detail invalidates the mapping and returns null', async () => {
