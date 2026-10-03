@@ -1,12 +1,15 @@
 import type { Db } from '../db/db.js';
 import type { CompKind, Valuation, ValuationKey } from '../domain/types.js';
 import type { Settings } from '../settings/settings.js';
+import type { AggregatePriceSource } from './aggregate-source.js';
 import type { CompsSource } from './comps-source.js';
 import { computeValuation, ORACLE_VERSION } from './valuation.js';
 
 export interface OracleDeps {
   db: Db;
   source: CompsSource;
+  /** Preferred when it returns enough sales; a throw fails the valuation (never value on partial data). */
+  aggregate?: AggregatePriceSource;
   now: () => Date;
 }
 
@@ -17,6 +20,16 @@ function rowToValuation(r: Record<string, unknown>): Valuation {
     newestCompAgeDays: Number(r.newest_comp_age_days), confidence: Number(r.confidence),
     compsSource: String(r.comps_source), oracleVersion: String(r.oracle_version), computedAt: new Date(r.computed_at as string),
   };
+}
+
+async function persistValuation(db: Db, v: Valuation): Promise<void> {
+  await db.query(
+    `insert into valuations (card_id, grader, grade, value, low, high, comp_count, newest_comp_age_days, confidence,
+       comps_source, oracle_version, computed_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+    [v.cardId, v.grader, v.grade, v.value, v.low, v.high, v.compCount, v.newestCompAgeDays, v.confidence,
+      v.compsSource, v.oracleVersion, v.computedAt],
+  );
 }
 
 /** Throws if the comps source fails; callers must skip the listing (never alert on stale data). */
@@ -34,6 +47,18 @@ export async function getValuation(
     [key.cardId, key.grader, key.grade, freshAfter],
   );
   if (cached.rows[0]) return rowToValuation(cached.rows[0]);
+
+  if (deps.aggregate) {
+    const a = await deps.aggregate.fetchAggregate(key);
+    if (a && a.saleCount >= settings.minCompCount) {
+      const v: Valuation = {
+        ...key, value: a.value, low: a.low, high: a.high, compCount: a.saleCount, newestCompAgeDays: a.windowDays,
+        confidence: a.confidence, compsSource: a.sourceName, oracleVersion: ORACLE_VERSION, computedAt: now,
+      };
+      await persistValuation(db, v);
+      return v;
+    }
+  }
 
   for (const c of await deps.source.fetchComps(key)) {
     await db.query(
@@ -56,12 +81,6 @@ export async function getValuation(
   if (!computed) return null;
 
   const v: Valuation = { ...key, ...computed, compsSource: deps.source.name, oracleVersion: ORACLE_VERSION, computedAt: now };
-  await db.query(
-    `insert into valuations (card_id, grader, grade, value, low, high, comp_count, newest_comp_age_days, confidence,
-       comps_source, oracle_version, computed_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-    [v.cardId, v.grader, v.grade, v.value, v.low, v.high, v.compCount, v.newestCompAgeDays, v.confidence,
-      v.compsSource, v.oracleVersion, v.computedAt],
-  );
+  await persistValuation(db, v);
   return v;
 }
