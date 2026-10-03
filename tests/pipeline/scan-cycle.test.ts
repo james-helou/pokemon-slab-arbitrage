@@ -98,4 +98,25 @@ describe('scanCycle', () => {
     const { rows } = await db.query<{ eval_attempts: number }>('select eval_attempts from listings');
     expect(rows[0]!.eval_attempts).toBe(3);
   });
+
+  it('counts misses for listings that vanish from the newest-first window', async () => {
+    const lot = (id: string, listed: string): EbayItemSummary => ({
+      ...SUMMARY, itemId: id, title: 'Lot of PSA 10 slabs', itemCreationDate: listed,
+    });
+    const A = lot('v1|A|0', '2026-10-03T11:50:00.000Z'); // window floor anchor
+    const B = lot('v1|B|0', '2026-10-03T11:55:00.000Z');
+    const C = lot('v1|C|0', '2026-10-03T11:58:00.000Z');
+    const { db, deps } = await setup();
+    let results = [A, B, C];
+    deps.ebay = { ...deps.ebay, searchNewGraded: async () => results };
+    expect((await scanCycle(deps, 0)).missed).toBe(0);
+    results = [A, C];
+    for (let i = 1; i <= 3; i++) expect((await scanCycle(deps, i * 2)).missed).toBe(1);
+    const miss = await db.query<{ miss_count: number }>(`select miss_count from listings where external_id = 'v1|B|0'`);
+    expect(miss.rows[0]!.miss_count).toBe(3);
+    results = [A, B, C];
+    expect((await scanCycle(deps, 8)).missed).toBe(0);
+    const reset = await db.query<{ miss_count: number }>(`select miss_count from listings where external_id = 'v1|B|0'`);
+    expect(reset.rows[0]!.miss_count).toBe(0);
+  });
 });

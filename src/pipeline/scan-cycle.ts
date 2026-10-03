@@ -1,5 +1,7 @@
 import { loadChannels } from '../channels/channels.js';
-import { markEvaluated, needsEvaluation, recordEvalFailure, upsertListing } from '../listings/listings-repo.js';
+import {
+  markEvaluated, needsEvaluation, recordEvalFailure, recordWindowMisses, upsertListing,
+} from '../listings/listings-repo.js';
 import { loadSettings } from '../settings/settings.js';
 import type { Budget } from '../sources/ebay/budget.js';
 import type { EbayClient } from '../sources/ebay/ebay-client.js';
@@ -15,12 +17,14 @@ export interface ScanSummary {
   status: 'ok' | 'paused' | 'throttled';
   seen: number;
   new: number;
+  /** Open listings inside this scan's window that the scan did not return (disappearance suspects accrue here). */
+  missed: number;
   errors: number;
   outcomes: Record<string, number>;
 }
 
 export async function scanCycle(deps: ScanDeps, cycle: number): Promise<ScanSummary> {
-  const summary: ScanSummary = { status: 'ok', seen: 0, new: 0, errors: 0, outcomes: {} };
+  const summary: ScanSummary = { status: 'ok', seen: 0, new: 0, missed: 0, errors: 0, outcomes: {} };
   const settings = await loadSettings(deps.db);
   if (settings.paused) return { ...summary, status: 'paused' };
   if ((await deps.budget.usedToday()) >= deps.budget.limit * 0.9 && cycle % 2 === 1) {
@@ -30,9 +34,15 @@ export async function scanCycle(deps: ScanDeps, cycle: number): Promise<ScanSumm
   const channels = await loadChannels(deps.db);
   const results = await deps.ebay.searchNewGraded();
   summary.seen = results.length;
+  const seenIds: string[] = [];
+  let windowFloor: Date | null = null;
   for (const s of results) {
     const listing = summaryToListing(s);
     if (!listing) continue;
+    seenIds.push(listing.externalId);
+    if (listing.listedAt && !Number.isNaN(listing.listedAt.getTime()) && (!windowFloor || listing.listedAt < windowFloor)) {
+      windowFloor = listing.listedAt;
+    }
     const { isNew } = await upsertListing(deps.db, listing, deps.now());
     if (isNew) summary.new++;
     if (!(await needsEvaluation(deps.db, listing))) continue;
@@ -46,5 +56,7 @@ export async function scanCycle(deps: ScanDeps, cycle: number): Promise<ScanSumm
       deps.log('error', 'evaluate failed', { externalId: listing.externalId, err: String(err) });
     }
   }
+  // Only listings strictly newer than the oldest returned one are "should have been seen". No floor, no counting.
+  if (windowFloor) summary.missed = await recordWindowMisses(deps.db, 'ebay', seenIds, windowFloor);
   return summary;
 }
