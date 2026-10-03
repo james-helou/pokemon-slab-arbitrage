@@ -14,6 +14,8 @@ export interface Settings {
   valuationMaxAgeHours: number;
   /** Minimum comps in the window required to produce a valuation. */
   minCompCount: number;
+  /** Minimum matcher confidence required to proceed (title-only PSA match is 0.855). */
+  minMatchConfidence: number;
   scanIntervalSeconds: number;
   browserAgentEnabled: boolean;
 }
@@ -29,6 +31,7 @@ export const DEFAULT_SETTINGS: Settings = {
   boDiscount: 0.92,
   valuationMaxAgeHours: 24,
   minCompCount: 3,
+  minMatchConfidence: 0.85,
   scanIntervalSeconds: 90,
   browserAgentEnabled: false,
 };

@@ -5,11 +5,12 @@ import { scanCycle, type ScanDeps } from '../../src/pipeline/scan-cycle.js';
 import { setSetting } from '../../src/settings/settings.js';
 import type { Budget } from '../../src/sources/ebay/budget.js';
 import { createTestDb } from '../helpers/test-db.js';
+import type { EbayItemSummary } from '../../src/sources/ebay/ebay-client.js';
 import { ITEM, SUMMARY, seedCards } from '../helpers/fixtures.js';
 
 const NOW = new Date('2026-10-03T12:00:00Z');
 
-async function setup(opts: { used?: number; valuateThrows?: boolean } = {}) {
+async function setup(opts: { used?: number; valuateThrows?: boolean; getItemThrows?: () => boolean; results?: EbayItemSummary[] } = {}) {
   const db = await createTestDb();
   await seedCards(db);
   await addEntry(db, { kind: 'deposit', amount: 500 });
@@ -18,8 +19,12 @@ async function setup(opts: { used?: number; valuateThrows?: boolean } = {}) {
     db,
     budget,
     ebay: {
-      searchNewGraded: async () => [SUMMARY, { ...SUMMARY, itemId: 'v1|222|0', title: 'Lot of PSA 10 slabs' }],
-      getItem: async () => ITEM,
+      searchNewGraded: async () =>
+        opts.results ?? [SUMMARY, { ...SUMMARY, itemId: 'v1|222|0', title: 'Lot of PSA 10 slabs' }],
+      getItem: async () => {
+        if (opts.getItemThrows?.()) throw new Error('ebay 500');
+        return ITEM;
+      },
     },
     valuate: async (key) => {
       if (opts.valuateThrows) throw new Error('comps down');
@@ -62,5 +67,35 @@ describe('scanCycle', () => {
     expect(r.errors).toBe(1);
     const { rows } = await db.query<{ n: number }>('select count(*)::int as n from recommendations');
     expect(rows[0]!.n).toBe(0);
+  });
+
+  it('skips listings that normalize to null', async () => {
+    const eur: EbayItemSummary = { ...SUMMARY, itemId: 'v1|333|0', price: { value: '350.00', currency: 'EUR' } };
+    const { db, deps } = await setup({ results: [eur, SUMMARY] });
+    const r = await scanCycle(deps, 0);
+    expect(r).toMatchObject({ seen: 2, new: 1, errors: 0 });
+    const { rows } = await db.query('select 1 from listings');
+    expect(rows).toHaveLength(1);
+  });
+
+  it('retries a listing whose evaluation threw, then recommends', async () => {
+    let fail = true;
+    const { db, deps } = await setup({ results: [SUMMARY], getItemThrows: () => fail });
+    expect((await scanCycle(deps, 0)).errors).toBe(1);
+    fail = false;
+    const second = await scanCycle(deps, 2);
+    expect(second.outcomes).toEqual({ recommended: 1 });
+    const { rows } = await db.query<{ n: number }>('select count(*)::int as n from recommendations');
+    expect(rows[0]!.n).toBe(1);
+    expect((await scanCycle(deps, 4)).outcomes).toEqual({});
+  });
+
+  it('stops retrying after 3 failed attempts', async () => {
+    const { db, deps } = await setup({ results: [SUMMARY], getItemThrows: () => true });
+    const errors: number[] = [];
+    for (let i = 0; i < 5; i++) errors.push((await scanCycle(deps, i * 2)).errors);
+    expect(errors).toEqual([1, 1, 1, 0, 0]);
+    const { rows } = await db.query<{ eval_attempts: number }>('select eval_attempts from listings');
+    expect(rows[0]!.eval_attempts).toBe(3);
   });
 });

@@ -44,3 +44,25 @@ export async function insertMatch(
     ],
   );
 }
+
+export const MAX_EVAL_ATTEMPTS = 3;
+
+export async function needsEvaluation(db: Db, l: Pick<Listing, 'source' | 'externalId'>): Promise<boolean> {
+  const { rows } = await db.query<{ ok: boolean }>(
+    `select (evaluated_at is null and eval_attempts < $3) as ok from listings where source = $1 and external_id = $2`,
+    [l.source, l.externalId, MAX_EVAL_ATTEMPTS],
+  );
+  return Boolean(rows[0]?.ok);
+}
+
+export async function markEvaluated(db: Db, l: Pick<Listing, 'source' | 'externalId'>, now: Date): Promise<void> {
+  await db.query(`update listings set evaluated_at = $3 where source = $1 and external_id = $2`, [
+    l.source, l.externalId, now,
+  ]);
+}
+
+export async function recordEvalFailure(db: Db, l: Pick<Listing, 'source' | 'externalId'>): Promise<void> {
+  await db.query(`update listings set eval_attempts = eval_attempts + 1 where source = $1 and external_id = $2`, [
+    l.source, l.externalId,
+  ]);
+}

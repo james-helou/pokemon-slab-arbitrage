@@ -9,6 +9,7 @@ describe('settings', () => {
     expect(DEFAULT_SETTINGS.minNet).toBe(75);
     expect(DEFAULT_SETTINGS.minRoi).toBe(0.2);
     expect(DEFAULT_SETTINGS.enabledGraders).toEqual(['PSA']);
+    expect(DEFAULT_SETTINGS.minMatchConfidence).toBe(0.85);
   });
 
   it('overrides a stored key and ignores unknown keys', async () => {

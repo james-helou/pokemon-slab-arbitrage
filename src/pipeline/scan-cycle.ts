@@ -1,5 +1,5 @@
 import { loadChannels } from '../channels/channels.js';
-import { upsertListing } from '../listings/listings-repo.js';
+import { markEvaluated, needsEvaluation, recordEvalFailure, upsertListing } from '../listings/listings-repo.js';
 import { loadSettings } from '../settings/settings.js';
 import type { Budget } from '../sources/ebay/budget.js';
 import type { EbayClient } from '../sources/ebay/ebay-client.js';
@@ -34,13 +34,15 @@ export async function scanCycle(deps: ScanDeps, cycle: number): Promise<ScanSumm
     const listing = summaryToListing(s);
     if (!listing) continue;
     const { isNew } = await upsertListing(deps.db, listing, deps.now());
-    if (!isNew) continue;
-    summary.new++;
+    if (isNew) summary.new++;
+    if (!(await needsEvaluation(deps.db, listing))) continue;
     try {
       const outcome = await evaluateListing(deps, listing, settings, channels);
+      await markEvaluated(deps.db, listing, deps.now());
       summary.outcomes[outcome.status] = (summary.outcomes[outcome.status] ?? 0) + 1;
     } catch (err) {
       summary.errors++;
+      await recordEvalFailure(deps.db, listing);
       deps.log('error', 'evaluate failed', { externalId: listing.externalId, err: String(err) });
     }
   }

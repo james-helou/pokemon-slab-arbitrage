@@ -34,6 +34,7 @@ export interface EvaluateOutcome {
 function gate(m: Match, settings: Settings): EvaluateOutcome | null {
   if (!settings.enabledGraders.includes(m.grader)) return { status: 'grader_disabled', reasons: [m.grader] };
   if (m.gradeLabel) return { status: 'unsupported_label', reasons: [m.gradeLabel] };
+  if (m.confidence < settings.minMatchConfidence) return { status: 'rejected', reasons: ['low_match_confidence'] };
   return null;
 }
 
@@ -59,6 +60,9 @@ export async function evaluateListing(
   const key: ValuationKey = { cardId: first.match.cardId, grader: first.match.grader, grade: first.match.grade };
   const valuation = await deps.valuate(key, settings);
   if (!valuation) return { status: 'no_valuation', reasons: [] };
+  if (deps.now().getTime() - valuation.computedAt.getTime() > settings.valuationMaxAgeHours * 3_600_000) {
+    return { status: 'rejected', reasons: ['stale_valuation'] };
+  }
 
   if (listing.shipping === null) return { status: 'rejected', reasons: ['shipping_unknown'] };
 
