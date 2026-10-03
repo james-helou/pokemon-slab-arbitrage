@@ -47,3 +47,30 @@ describe('getValuation', () => {
     expect((await source.fetchComps(KEY)).length).toBeGreaterThan(0);
   });
 });
+
+describe('getValuation excludeFixture', () => {
+  it('ignores stored fixture comps when excludeFixture is set, keeps other comps', async () => {
+    now = new Date('2026-10-03T12:00:00Z');
+    const db = await createTestDb();
+    await seedCards(db);
+    const fixture = fixtureCompsSource([{ ...KEY, sales: [100, 110, 120, 130].map((price, i) => ({ price, daysAgo: i + 1 })) }], clock);
+    // Fixture comps were persisted by an earlier fixture-mode run.
+    expect(await getValuation({ db, source: fixture, now: clock }, KEY, DEFAULT_SETTINGS)).toMatchObject({ compCount: 4 });
+    // The fixture-built cached valuation is not served once excludeFixture is on.
+    expect(await getValuation({ db, source: fixtureCompsSource([], clock), now: clock, excludeFixture: true }, KEY, DEFAULT_SETTINGS)).toBeNull();
+    await db.query('delete from valuations');
+
+    const empty = fixtureCompsSource([], clock);
+    expect(await getValuation({ db, source: empty, now: clock }, KEY, DEFAULT_SETTINGS)).toMatchObject({ compCount: 4 });
+    await db.query('delete from valuations');
+    expect(await getValuation({ db, source: empty, now: clock, excludeFixture: true }, KEY, DEFAULT_SETTINGS)).toBeNull();
+
+    await db.query(
+      `insert into comps (card_id, grader, grade, price, sold_at, kind, source_ref)
+       select $1, $2, $3, 500, $4::timestamptz - (g || ' days')::interval, 'paid_source', 'real:' || g from generate_series(1, 3) g`,
+      [KEY.cardId, KEY.grader, KEY.grade, now],
+    );
+    const v = await getValuation({ db, source: empty, now: clock, excludeFixture: true }, KEY, DEFAULT_SETTINGS);
+    expect(v).toMatchObject({ compCount: 3, value: 500 });
+  });
+});

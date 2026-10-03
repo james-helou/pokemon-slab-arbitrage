@@ -10,6 +10,11 @@ export interface OracleDeps {
   source: CompsSource;
   /** Preferred when it returns enough sales; a throw fails the valuation (never value on partial data). */
   aggregate?: AggregatePriceSource;
+  /**
+   * Set when a real vendor is configured: ignores comps rows persisted by the fixture source (source_ref 'fixture:%')
+   * and cached valuations built from them, so leftover dev fixtures never feed real valuations.
+   */
+  excludeFixture?: boolean;
   now: () => Date;
 }
 
@@ -43,8 +48,9 @@ export async function getValuation(
   const freshAfter = new Date(now.getTime() - settings.valuationMaxAgeHours * 3_600_000);
   const cached = await db.query<Record<string, unknown>>(
     `select * from valuations where card_id = $1 and grader = $2 and grade = $3 and computed_at > $4
+       and ($5::boolean is not true or comps_source not like '%fixture%')
      order by computed_at desc limit 1`,
-    [key.cardId, key.grader, key.grade, freshAfter],
+    [key.cardId, key.grader, key.grade, freshAfter, deps.excludeFixture ?? false],
   );
   if (cached.rows[0]) return rowToValuation(cached.rows[0]);
 
@@ -70,8 +76,9 @@ export async function getValuation(
 
   const since = new Date(now.getTime() - 90 * 86_400_000);
   const { rows } = await db.query<{ price: string; sold_at: string; kind: CompKind }>(
-    `select price, sold_at, kind from comps where card_id = $1 and grader = $2 and grade = $3 and sold_at >= $4`,
-    [key.cardId, key.grader, key.grade, since],
+    `select price, sold_at, kind from comps where card_id = $1 and grader = $2 and grade = $3 and sold_at >= $4
+       and ($5::boolean is not true or source_ref not like 'fixture:%')`,
+    [key.cardId, key.grader, key.grade, since, deps.excludeFixture ?? false],
   );
   const computed = computeValuation(
     rows.map((r) => ({ price: Number(r.price), soldAt: new Date(r.sold_at), kind: r.kind })),
