@@ -74,3 +74,36 @@ describe('getValuation excludeFixture', () => {
     expect(v).toMatchObject({ compCount: 3, value: 500 });
   });
 });
+
+describe('getValuation disappearing-BIN comps', () => {
+  const NOW = new Date('2026-10-03T12:00:00Z');
+  async function insertComps(db: Awaited<ReturnType<typeof createTestDb>>, kind: string, prices: number[], prefix: string) {
+    for (const [i, price] of prices.entries()) {
+      await db.query(
+        `insert into comps (card_id, grader, grade, price, sold_at, kind, source_ref) values ($1, $2, $3, $4, $5, $6, $7)`,
+        [KEY.cardId, KEY.grader, KEY.grade, price, new Date(NOW.getTime() - (i + 1) * 86_400_000), kind, `${prefix}:${i}`],
+      );
+    }
+  }
+
+  it('never values a card from disappearing_bin comps alone, and persists nothing', async () => {
+    now = NOW;
+    const db = await createTestDb();
+    await seedCards(db);
+    await insertComps(db, 'disappearing_bin', [900, 900, 900], 'ebay:relist');
+    const v = await getValuation({ db, source: fixtureCompsSource([], clock), now: clock }, KEY, DEFAULT_SETTINGS);
+    expect(v).toBeNull();
+    const { rows } = await db.query('select 1 from valuations');
+    expect(rows).toHaveLength(0);
+  });
+
+  it('counts disappearing_bin comps when mixed with another comp kind', async () => {
+    now = NOW;
+    const db = await createTestDb();
+    await seedCards(db);
+    await insertComps(db, 'paid_source', [100, 120], 'real');
+    await insertComps(db, 'disappearing_bin', [110], 'ebay:sold');
+    const v = await getValuation({ db, source: fixtureCompsSource([], clock), now: clock }, KEY, DEFAULT_SETTINGS);
+    expect(v).toMatchObject({ compCount: 3 });
+  });
+});

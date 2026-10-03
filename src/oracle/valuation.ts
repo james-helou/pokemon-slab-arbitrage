@@ -1,6 +1,6 @@
 import type { CompKind } from '../domain/types.js';
 
-export const ORACLE_VERSION = 'v1.1.0';
+export const ORACLE_VERSION = 'v1.2.0';
 
 export interface CompPoint {
   price: number;
@@ -27,14 +27,21 @@ function quantile(sorted: number[], p: number): number {
   return sorted[lo]! + (sorted[hi]! - sorted[lo]!) * (pos - lo);
 }
 
+/**
+ * null when there are too few comps, or when every comp used is a disappearing-BIN record. That record is
+ * supplementary: a 404 (`not_found`) comp is the last ask of a listing that may have ended or been relisted at an
+ * overpriced ask, so it never values a card on its own. It still counts when mixed with at least one other kind.
+ */
 export function computeValuation(comps: CompPoint[], now: Date, opts: { boDiscount: number; minCompCount: number }): ComputedValuation | null {
   const adjusted = comps.map((c) => ({
+    kind: c.kind,
     price: c.kind === 'paid_source' ? c.price : c.price * opts.boDiscount,
     ageDays: Math.max(0, (now.getTime() - c.soldAt.getTime()) / DAY_MS),
   }));
   const recent = adjusted.filter((a) => a.ageDays <= 14);
   const used = recent.length >= 3 ? recent : adjusted.filter((a) => a.ageDays <= 90);
   if (used.length === 0 || used.length < opts.minCompCount) return null;
+  if (used.every((u) => u.kind === 'disappearing_bin')) return null;
 
   const prices = used.map((u) => u.price).sort((a, b) => a - b);
   const value = quantile(prices, 0.5);

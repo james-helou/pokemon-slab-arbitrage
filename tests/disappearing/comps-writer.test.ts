@@ -70,17 +70,18 @@ describe('recordDisappearingComps', () => {
     expect(rows[0]!.source_ref).toBe('ebay:upgraded:not_found');
   });
 
-  it('feeds the oracle, which applies the Best Offer discount', async () => {
+  it('feeds the oracle alongside another comp kind, which applies the Best Offer discount', async () => {
     const db = await createTestDb();
     await seedCards(db);
     for (const id of ['a', 'b', 'c']) await gone(db, id);
     await recordDisappearingComps(db, 0.85, NOW);
-    const v = await getValuation(
-      { db, source: fixtureCompsSource([], () => NOW), now: () => NOW },
-      { cardId: 'sv03.5-199', grader: 'PSA', grade: 10 },
-      DEFAULT_SETTINGS,
-    );
-    expect(v).toMatchObject({ value: 322, compCount: 3 }); // 350 x 0.92
+    const key = { cardId: 'sv03.5-199', grader: 'PSA' as const, grade: 10 };
+    // Alone, the record never values a card.
+    expect(await getValuation({ db, source: fixtureCompsSource([], () => NOW), now: () => NOW }, key, DEFAULT_SETTINGS)).toBeNull();
+    // Mixed with one paid comp it counts.
+    const paid = fixtureCompsSource([{ ...key, sales: [{ price: 322, daysAgo: 1 }] }], () => NOW);
+    const v = await getValuation({ db, source: paid, now: () => NOW }, key, DEFAULT_SETTINGS);
+    expect(v).toMatchObject({ value: 322, compCount: 4 }); // 350 x 0.92 x3, plus the paid 322
   });
 
   it('excludes listings that were themselves recommended (flagged deals bias values down)', async () => {

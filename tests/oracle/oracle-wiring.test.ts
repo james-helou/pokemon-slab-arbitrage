@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../../src/config.js';
 import type { CompsSource } from '../../src/oracle/comps-source.js';
 import { buildOracleDeps } from '../../src/oracle/oracle-wiring.js';
+import { getValuation } from '../../src/oracle/oracle.js';
+import { DEFAULT_SETTINGS } from '../../src/settings/settings.js';
 import { createTestDb } from '../helpers/test-db.js';
 import { seedCards } from '../helpers/fixtures.js';
 
@@ -59,5 +61,22 @@ describe('buildOracleDeps', () => {
     expect(h.fetched.map((f) => f.url)).toEqual(['https://api.tcgdex.net/v2/en/cards/sv03.5-199']);
     expect(h.lines.map((l) => l.msg)).toContain('poketrace mapping failed');
     expect(JSON.stringify(h.lines)).not.toContain('pt-s3cret');
+  });
+});
+
+describe('buildOracleDeps + getValuation', () => {
+  it('poketrace mode with a null aggregate does not value a card from disappearing_bin comps alone', async () => {
+    const h = await harness();
+    const o = await buildOracleDeps(loadConfig({ ...ENV, COMPS_SOURCE: 'poketrace', POKETRACE_API_KEY: 'pt-s3cret' }), h.deps);
+    for (let i = 1; i <= 3; i++) {
+      await h.deps.db.query(
+        `insert into comps (card_id, grader, grade, price, sold_at, kind, source_ref) values ($1, $2, $3, 900, $4, 'disappearing_bin', $5)`,
+        [KEY.cardId, KEY.grader, KEY.grade, new Date(now().getTime() - i * 86_400_000), `ebay:v1|${i}|0:not_found`],
+      );
+    }
+    expect(await getValuation(o, KEY, DEFAULT_SETTINGS)).toBeNull();
+    expect(h.lines.map((l) => l.msg)).toContain('poketrace mapping failed');
+    const { rows } = await h.deps.db.query('select 1 from valuations');
+    expect(rows).toHaveLength(0);
   });
 });

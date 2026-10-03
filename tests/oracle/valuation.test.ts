@@ -5,8 +5,8 @@ const NOW = new Date('2026-10-03T12:00:00Z');
 const ago = (days: number) => new Date(NOW.getTime() - days * 86_400_000);
 const paid = (price: number, days: number): CompPoint => ({ price, soldAt: ago(days), kind: 'paid_source' });
 
-it('ORACLE_VERSION is v1.1.0 (USD-required aggregates)', () => {
-  expect(ORACLE_VERSION).toBe('v1.1.0');
+it('ORACLE_VERSION is v1.2.0 (disappearing-BIN comps never value a card alone)', () => {
+  expect(ORACLE_VERSION).toBe('v1.2.0');
 });
 
 describe('computeValuation', () => {
@@ -31,8 +31,19 @@ describe('computeValuation', () => {
 
   it('discounts non-paid comps for hidden Best Offer prices', () => {
     const bin = (days: number): CompPoint => ({ price: 100, soldAt: ago(days), kind: 'disappearing_bin' });
-    const v = computeValuation([bin(1), bin(2), bin(3)], NOW, { boDiscount: 0.92, minCompCount: 3 });
+    const v = computeValuation([bin(1), bin(2), paid(92, 3)], NOW, { boDiscount: 0.92, minCompCount: 3 });
     expect(v?.value).toBe(92);
+  });
+
+  it('returns null when every comp used is a disappearing_bin record', () => {
+    const bin = (price: number, days: number): CompPoint => ({ price, soldAt: ago(days), kind: 'disappearing_bin' });
+    expect(computeValuation([bin(900, 1), bin(900, 2), bin(900, 3)], NOW, { boDiscount: 0.92, minCompCount: 3 })).toBeNull();
+  });
+
+  it('judges disappearing-only on the comps actually used (recent window), not the whole 90 days', () => {
+    const bin = (price: number, days: number): CompPoint => ({ price, soldAt: ago(days), kind: 'disappearing_bin' });
+    // 3 recent comps are all disappearing_bin, so the old paid comp is not used and cannot rescue them.
+    expect(computeValuation([bin(900, 1), bin(900, 2), bin(900, 3), paid(100, 60)], NOW, { boDiscount: 0.92, minCompCount: 3 })).toBeNull();
   });
 
   it('lowers confidence for old comps', () => {
