@@ -57,8 +57,10 @@ export async function getValuation(
   if (deps.aggregate) {
     const a = await deps.aggregate.fetchAggregate(key);
     if (a && a.saleCount >= settings.minCompCount) {
+      // eBay sold aggregates include accepted Best Offers at the list price: same discount as non-paid comps.
+      const bo = (n: number) => Math.round(n * settings.boDiscount * 100) / 100;
       const v: Valuation = {
-        ...key, value: a.value, low: a.low, high: a.high, compCount: a.saleCount, newestCompAgeDays: a.windowDays,
+        ...key, value: bo(a.value), low: bo(a.low), high: bo(a.high), compCount: a.saleCount, newestCompAgeDays: a.windowDays,
         confidence: a.confidence, compsSource: a.sourceName, oracleVersion: ORACLE_VERSION, computedAt: now,
       };
       await persistValuation(db, v);

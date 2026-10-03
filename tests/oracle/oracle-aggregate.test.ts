@@ -24,15 +24,26 @@ describe('getValuation with an aggregate source', () => {
     const db = await createTestDb();
     await seedCards(db);
     const aggregate = aggSource(agg());
-    const v = await getValuation({ db, source: comps, aggregate, now: clock }, KEY, DEFAULT_SETTINGS);
+    const settings = { ...DEFAULT_SETTINGS, boDiscount: 1 };
+    const v = await getValuation({ db, source: comps, aggregate, now: clock }, KEY, settings);
     expect(v).toMatchObject({
       value: 335, low: 280, high: 400, compCount: 12, newestCompAgeDays: 30, confidence: 0.8, compsSource: 'poketrace',
     });
     const { rows } = await db.query<{ comps_source: string }>('select comps_source from valuations');
     expect(rows).toEqual([{ comps_source: 'poketrace' }]);
-    const cached = await getValuation({ db, source: comps, aggregate, now: clock }, KEY, DEFAULT_SETTINGS);
+    const cached = await getValuation({ db, source: comps, aggregate, now: clock }, KEY, settings);
     expect(cached?.compsSource).toBe('poketrace');
     expect(aggregate.calls).toBe(1);
+  });
+
+  it('applies the Best Offer discount to value, low and high before persisting (eBay sold prices hide BO)', async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    const aggregate = aggSource(agg({ value: 300, low: 200, high: 400 }));
+    const v = await getValuation({ db, source: comps, aggregate, now: clock }, KEY, { ...DEFAULT_SETTINGS, boDiscount: 0.85 });
+    expect(v).toMatchObject({ value: 255, low: 170, high: 340 });
+    const { rows } = await db.query<{ value: string; low: string; high: string }>('select value, low, high from valuations');
+    expect(rows.map((r) => [Number(r.value), Number(r.low), Number(r.high)])).toEqual([[255, 170, 340]]);
   });
 
   it('falls back to comps when saleCount is below minCompCount', async () => {
