@@ -11,6 +11,8 @@ import { recordDisappearingComps } from './comps-writer.js';
 /** A listing confirmed live is not re-checked for this long, even if it keeps missing from search. */
 export const RECHECK_COOLDOWN_HOURS = 6;
 const MAX_SUSPECTS_PER_RUN = 500;
+/** How often the kill switch is re-read during a run, so /pause takes effect mid-sweep. */
+const PAUSE_CHECK_EVERY = 10;
 
 export interface SweepDeps {
   db: Db;
@@ -72,6 +74,7 @@ async function listSuspects(db: Db, minMisses: number, now: Date): Promise<Suspe
  * - not worth a call (no confident label-free match, below disappearMinPrice) or too stale -> gone 'window_miss', no comp;
  * - otherwise one budgeted getItem: 404 -> 'not_found', OUT_OF_STOCK -> 'out_of_stock', live -> reset + cooldown.
  * Then writes disappearing_bin comps for every confirmed disappearance (including ones found by evaluate/outcomes).
+ * Re-reads `paused` every 10 suspects and stops early (status 'paused') when it is set.
  */
 export async function sweepDisappeared(deps: SweepDeps): Promise<SweepSummary> {
   const s: SweepSummary = {
@@ -84,7 +87,11 @@ export async function sweepDisappeared(deps: SweepDeps): Promise<SweepSummary> {
   s.suspects = suspects.length;
   const maxAgeMs = settings.disappearConfirmMaxAgeHours * 3_600_000;
   let budgetLeft = true;
-  for (const l of suspects) {
+  for (const [i, l] of suspects.entries()) {
+    if (i > 0 && i % PAUSE_CHECK_EVERY === 0 && (await loadSettings(deps.db)).paused) {
+      // Stop without writing comps: the next unpaused run records every confirmed disappearance.
+      return { ...s, status: 'paused' };
+    }
     const ref = { source: 'ebay' as const, externalId: l.externalId };
     const worthACall =
       l.cardId !== null && l.gradeLabel === null && l.confidence !== null &&

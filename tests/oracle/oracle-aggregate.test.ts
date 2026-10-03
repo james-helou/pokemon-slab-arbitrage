@@ -27,7 +27,7 @@ describe('getValuation with an aggregate source', () => {
     const settings = { ...DEFAULT_SETTINGS, boDiscount: 1 };
     const v = await getValuation({ db, source: comps, aggregate, now: clock }, KEY, settings);
     expect(v).toMatchObject({
-      value: 335, low: 280, high: 400, compCount: 12, newestCompAgeDays: 30, confidence: 0.8, compsSource: 'poketrace',
+      value: 335, low: 280, high: 400, compCount: 12, newestCompAgeDays: 0, confidence: 0.8, compsSource: 'poketrace',
     });
     const { rows } = await db.query<{ comps_source: string }>('select comps_source from valuations');
     expect(rows).toEqual([{ comps_source: 'poketrace' }]);
@@ -69,4 +69,13 @@ describe('getValuation with an aggregate source', () => {
     const { rows } = await db.query('select 1 from valuations');
     expect(rows).toHaveLength(0);
   });
+
+  it("sets newestCompAgeDays from the aggregate's asOf age in days, not its window", async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    const asOf = new Date(NOW.getTime() - 36 * 3_600_000);
+    const v = await getValuation({ db, source: comps, aggregate: aggSource(agg({ asOf, windowDays: 30 })), now: clock }, KEY, DEFAULT_SETTINGS);
+    expect(v?.newestCompAgeDays).toBe(1.5);
+  });
 });
+

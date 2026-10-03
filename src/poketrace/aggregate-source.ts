@@ -71,6 +71,8 @@ export function poketraceAggregateSource(deps: PoketraceAggregateDeps): Aggregat
   return {
     async fetchAggregate(key: ValuationKey & { gradeLabel?: Key['gradeLabel'] }): Promise<AggregatePrice | null> {
       const tier = tierKey(key);
+      // Currently unreachable: evaluate's gate rejects labelled grades (Pristine / Black Label) before valuation. Kept
+      // so a future caller cannot price a labelled grade off the plain tier.
       if (!tier) return null;
       let id: string | null;
       try {

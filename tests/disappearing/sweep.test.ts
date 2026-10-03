@@ -118,4 +118,27 @@ describe('sweepDisappeared', () => {
     expect((await sweepDisappeared(deps)).status).toBe('paused');
     expect(calls()).toBe(0);
   });
+
+  it('re-checks paused every 10 suspects and stops early', async () => {
+    const { db, deps, calls } = await setup();
+    for (let i = 0; i < 24; i++) {
+      const l = summaryToListing({ ...SUMMARY, itemId: `v1|9${i}|0`, price: { value: String(400 + i), currency: 'USD' } })!;
+      await upsertListing(db, l, NOW);
+      await insertMatch(db, l, match(0.9), 'title');
+    }
+    await db.query('update listings set miss_count = 3');
+    const getItem = deps.ebay.getItem;
+    deps.ebay = {
+      getItem: async (id) => {
+        if (calls() === 2) await setSetting(db, 'paused', true);
+        return getItem(id);
+      },
+    };
+    const r = await sweepDisappeared(deps);
+    expect(r).toMatchObject({ status: 'paused', suspects: 25, compsWritten: 0 });
+    expect(calls()).toBe(10);
+    const { rows } = await db.query<{ n: number }>('select count(*)::int as n from listings where gone_at is null');
+    expect(rows[0]!.n).toBe(15);
+  });
 });
+

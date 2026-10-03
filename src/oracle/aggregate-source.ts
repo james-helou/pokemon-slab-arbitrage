@@ -6,7 +6,7 @@ export interface AggregatePrice {
   high: number;
   /** Number of sales behind the aggregate; plays the role of compCount. */
   saleCount: number;
-  /** Window the value was computed over (7 or 30). Stands in for the newest comp age, which aggregates don't expose. */
+  /** Window the value was computed over (7 or 30). Feeds confidence; the oracle takes newestCompAgeDays from asOf. */
   windowDays: number;
   /** 0..1, same scale as computeValuation's confidence. */
   confidence: number;

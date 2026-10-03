@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fixtureCompsSource, loadFixtureCompsSource, type CompsSource } from '../../src/oracle/comps-source.js';
 import { getValuation } from '../../src/oracle/oracle.js';
+import { ORACLE_VERSION } from '../../src/oracle/valuation.js';
 import { DEFAULT_SETTINGS } from '../../src/settings/settings.js';
 import { createTestDb } from '../helpers/test-db.js';
 import { seedCards } from '../helpers/fixtures.js';
@@ -107,3 +108,25 @@ describe('getValuation disappearing-BIN comps', () => {
     expect(v).toMatchObject({ compCount: 3 });
   });
 });
+
+describe('getValuation cache', () => {
+  it('only reuses cached valuations computed by the current ORACLE_VERSION', async () => {
+    now = new Date('2026-10-03T12:00:00Z');
+    const db = await createTestDb();
+    await seedCards(db);
+    await db.query(
+      `insert into valuations (card_id, grader, grade, value, low, high, comp_count, newest_comp_age_days, confidence,
+         comps_source, oracle_version, computed_at)
+       values ($1, $2, $3, 828, 828, 828, 3, 1, 0.9, 'own_db', 'v1.0.0', $4)`,
+      [KEY.cardId, KEY.grader, KEY.grade, new Date(now.getTime() - 3_600_000)],
+    );
+    expect(await getValuation({ db, source: fixtureCompsSource([], clock), now: clock }, KEY, DEFAULT_SETTINGS)).toBeNull();
+
+    const source = fixtureCompsSource([{ ...KEY, sales: [100, 110, 120, 130].map((price, i) => ({ price, daysAgo: i + 1 })) }], clock);
+    const v = await getValuation({ db, source, now: clock }, KEY, DEFAULT_SETTINGS);
+    expect(v).toMatchObject({ value: 115, oracleVersion: ORACLE_VERSION });
+    const cached = await getValuation({ db, source: fixtureCompsSource([], clock), now: clock }, KEY, DEFAULT_SETTINGS);
+    expect(cached?.value).toBe(115);
+  });
+});
+

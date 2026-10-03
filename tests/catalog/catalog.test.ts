@@ -105,6 +105,28 @@ describe('catalog', () => {
     expect(logs.find((l) => l.m.includes('stale'))?.d).toMatchObject({ ids: ['A1-001'] });
   });
 
+  it('removes a stale card that has a card_external_ids mapping (a cache, not a reference)', async () => {
+    const db = await createTestDb();
+    await seedCards(db, [
+      { id: 'sv3pt5-199', name: 'Old', number: '199', setId: 'sv3pt5', setName: '151', setPrintedTotal: 165 },
+      { id: 'A1-001', name: 'Pocket', number: '1', setId: 'A1', setName: 'Genetic Apex', setPrintedTotal: 226 },
+    ]);
+    await db.query(
+      `insert into comps (card_id, grader, grade, price, sold_at, kind, source_ref) values ('A1-001', 'PSA', 10, 5, now(), 'paid_source', 'x')`,
+    );
+    for (const id of ['sv3pt5-199', 'A1-001']) {
+      await db.query(
+        `insert into card_external_ids (card_id, provider, external_id, resolved_at) values ($1, 'poketrace', 'u-' || $1, now())`, [id],
+      );
+    }
+    const r = await syncCatalog(db, fakeFetch(), silentLog, { sleep: async () => {}, maxStaleRatio: 1 });
+    expect(r.removed).toBe(1);
+    expect(await getCard(db, 'sv3pt5-199')).toBeNull();
+    const { rows } = await db.query<{ card_id: string }>('select card_id from card_external_ids order by card_id');
+    // The referenced card is kept, and so is its mapping.
+    expect(rows.map((x) => x.card_id)).toEqual(['A1-001']);
+  });
+
   it('does not remove anything when a set was skipped', async () => {
     const db = await createTestDb();
     await seedCards(db, [{ id: 'old-1', name: 'Old', number: '1', setId: 'old', setName: 'Old', setPrintedTotal: 1 }]);

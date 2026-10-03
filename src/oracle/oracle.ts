@@ -48,9 +48,9 @@ export async function getValuation(
   const freshAfter = new Date(now.getTime() - settings.valuationMaxAgeHours * 3_600_000);
   const cached = await db.query<Record<string, unknown>>(
     `select * from valuations where card_id = $1 and grader = $2 and grade = $3 and computed_at > $4
-       and ($5::boolean is not true or comps_source not like '%fixture%')
+       and ($5::boolean is not true or comps_source not like '%fixture%') and oracle_version = $6
      order by computed_at desc limit 1`,
-    [key.cardId, key.grader, key.grade, freshAfter, deps.excludeFixture ?? false],
+    [key.cardId, key.grader, key.grade, freshAfter, deps.excludeFixture ?? false, ORACLE_VERSION],
   );
   if (cached.rows[0]) return rowToValuation(cached.rows[0]);
 
@@ -59,8 +59,10 @@ export async function getValuation(
     if (a && a.saleCount >= settings.minCompCount) {
       // eBay sold aggregates include accepted Best Offers at the list price: same discount as non-paid comps.
       const bo = (n: number) => Math.round(n * settings.boDiscount * 100) / 100;
+      // Age of the vendor's data (lastUpdated), in days: the closest thing an aggregate has to the newest comp's age.
+      const ageDays = Math.round((Math.max(0, now.getTime() - a.asOf.getTime()) / 86_400_000) * 100) / 100;
       const v: Valuation = {
-        ...key, value: bo(a.value), low: bo(a.low), high: bo(a.high), compCount: a.saleCount, newestCompAgeDays: a.windowDays,
+        ...key, value: bo(a.value), low: bo(a.low), high: bo(a.high), compCount: a.saleCount, newestCompAgeDays: ageDays,
         confidence: a.confidence, compsSource: a.sourceName, oracleVersion: ORACLE_VERSION, computedAt: now,
       };
       await persistValuation(db, v);

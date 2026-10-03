@@ -27,7 +27,10 @@ export function skippedTooMany(skipped: number, attempted: number, maxRatio = MA
 const REFS = ['listing_matches', 'comps', 'valuations', 'recommendations'];
 const UNREFERENCED = REFS.map((t) => `not exists (select 1 from ${t} r where r.card_id = cards.id)`).join(' and ');
 
-/** Deletes cards absent from this sync (old id formats, excluded series) unless a row references them. */
+/**
+ * Deletes cards absent from this sync (old id formats, excluded series) unless a row references them. Their
+ * card_external_ids rows (a cache) are deleted first.
+ */
 async function removeStale(db: Db, keepIds: string[], log: Log, maxRatio: number): Promise<number> {
   const { rows: counts } = await db.query<{ total: number; stale: number }>(
     `select count(*)::int as total, (count(*) filter (where id <> all($1::text[])))::int as stale from cards`,
@@ -45,6 +48,11 @@ async function removeStale(db: Db, keepIds: string[], log: Log, maxRatio: number
   if (kept.length > 0) {
     log('warn', 'stale catalog rows kept because they are referenced', { count: kept.length, ids: kept.map((r) => r.id).slice(0, 50) });
   }
+  // card_external_ids is a vendor-id cache with an FK to cards: drop it for the cards being removed (never a reason to keep one).
+  await db.query(
+    `delete from card_external_ids where card_id in (select id from cards where id <> all($1::text[]) and ${UNREFERENCED})`,
+    [keepIds],
+  );
   const { rows } = await db.query<{ id: string }>(
     `delete from cards where id <> all($1::text[]) and ${UNREFERENCED} returning id`,
     [keepIds],

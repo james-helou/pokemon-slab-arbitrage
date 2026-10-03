@@ -23,7 +23,7 @@ const WEEKLY_CHECK_MS = 3_600_000;
 async function main() {
   const cfg = loadConfig();
   const db = pgDb(cfg.DATABASE_URL, (err) => log('error', 'pg pool error', { message: err.message }));
-  // Applies every migrations/*.sql not yet recorded (001 ... 007) before anything else runs.
+  // Applies every migrations/*.sql not yet recorded (001 ... 010) before anything else runs.
   log('info', 'migrations', { applied: await migrate(db, 'migrations') });
 
   // The scan loop must never run against an empty catalog (every listing would be marked evaluated as no_match).
