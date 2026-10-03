@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createPoketraceClient } from '../../src/poketrace/client.js';
+import { createPoketraceClient, PoketraceHttpError } from '../../src/poketrace/client.js';
 
 const KEY = 'sk-super-secret-key';
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -41,6 +41,13 @@ describe('poketrace client', () => {
     const h = harness([() => json({}, 503)]);
     await expect(h.client.get('/cards/x')).rejects.toThrow('503');
     expect(h.calls).toHaveLength(4);
+  });
+
+  it('exposes the HTTP status on the error', async () => {
+    const h = harness([() => json({}, 404)]);
+    const err = await h.client.get('/cards/x').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PoketraceHttpError);
+    expect((err as PoketraceHttpError).status).toBe(404);
   });
 
   it('does not retry other 4xx', async () => {

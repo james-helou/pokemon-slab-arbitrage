@@ -6,6 +6,14 @@ const MAX_RETRY_AFTER_S = 30;
 /** Pro allows 30 req / 10s; stay at 3/s with a burst of 3. */
 const RATE_PER_SEC = 3;
 
+/** Carries the HTTP status (when there was a response) and the path only; never the key or the body. */
+export class PoketraceHttpError extends Error {
+  constructor(message: string, readonly status?: number) {
+    super(message);
+    this.name = 'PoketraceHttpError';
+  }
+}
+
 export interface PoketraceClient {
   get<T>(path: string, query?: Record<string, string>): Promise<T>;
 }
@@ -48,6 +56,7 @@ export function createPoketraceClient(opts: PoketraceClientOptions): PoketraceCl
     async get<T>(path: string, query?: Record<string, string>): Promise<T> {
       const qs = query ? `?${new URLSearchParams(query).toString()}` : '';
       let lastError = '';
+      let lastStatus: number | undefined;
       for (let attempt = 1; attempt <= MAX_TRIES; attempt++) {
         let retryable = true;
         let delay = BASE_DELAY_MS * 2 ** (attempt - 1);
@@ -59,6 +68,7 @@ export function createPoketraceClient(opts: PoketraceClientOptions): PoketraceCl
           });
           if (res.ok) return (await res.json()) as T;
           lastError = `status ${res.status}`;
+          lastStatus = res.status;
           retryable = res.status === 429 || res.status >= 500;
           const header = res.headers.get('Retry-After');
           const retryAfter = Number(header);
@@ -68,11 +78,12 @@ export function createPoketraceClient(opts: PoketraceClientOptions): PoketraceCl
         } catch {
           // Deliberately drop the underlying message: keep the key and request details out of errors.
           lastError = 'request failed';
+          lastStatus = undefined;
         }
         if (!retryable) break;
         if (attempt < MAX_TRIES) await sleep(delay);
       }
-      throw new Error(`poketrace ${path}: ${lastError}`);
+      throw new PoketraceHttpError(`poketrace ${path}: ${lastError}`, lastStatus);
     },
   };
 }

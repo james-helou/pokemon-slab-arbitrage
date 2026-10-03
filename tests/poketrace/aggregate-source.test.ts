@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { poketraceAggregateSource, tierKey } from '../../src/poketrace/aggregate-source.js';
-import type { PoketraceClient } from '../../src/poketrace/client.js';
+import { PoketraceHttpError, type PoketraceClient } from '../../src/poketrace/client.js';
 
 const NOW = new Date('2026-10-03T12:00:00Z');
 const KEY = { cardId: 'sv03.5-199', grader: 'PSA' as const, grade: 10 };
@@ -127,10 +127,28 @@ describe('poketraceAggregateSource', () => {
       expect(await src.fetchAggregate(KEY)).toBeNull();
     });
 
-    it('a failure fetching the card detail still throws', async () => {
-      const client: PoketraceClient = { async get() { throw new Error('poketrace /cards/u1: status 503'); } };
-      const src = poketraceAggregateSource({ client, now: () => NOW, resolveId: async () => 'u1' });
+    it('a failure fetching the card detail still throws (without invalidating the mapping)', async () => {
+      const invalidated: string[] = [];
+      const client: PoketraceClient = {
+        async get() { throw new PoketraceHttpError('poketrace /cards/u1: status 503', 503); },
+      };
+      const src = poketraceAggregateSource({
+        client, now: () => NOW, resolveId: async () => 'u1', invalidateId: async (id) => { invalidated.push(id); },
+      });
       await expect(src.fetchAggregate(KEY)).rejects.toThrow('503');
+      expect(invalidated).toEqual([]);
+    });
+
+    it('a 404 on the card detail invalidates the mapping and returns null', async () => {
+      const invalidated: string[] = [];
+      const client: PoketraceClient = {
+        async get() { throw new PoketraceHttpError('poketrace /cards/u1: status 404', 404); },
+      };
+      const src = poketraceAggregateSource({
+        client, now: () => NOW, resolveId: async () => 'u1', invalidateId: async (id) => { invalidated.push(id); },
+      });
+      expect(await src.fetchAggregate(KEY)).toBeNull();
+      expect(invalidated).toEqual([KEY.cardId]);
     });
   });
 

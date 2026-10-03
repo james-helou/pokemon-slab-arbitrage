@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolvePoketraceId } from '../../src/poketrace/mapping.js';
+import { invalidatePoketraceId, resolvePoketraceId } from '../../src/poketrace/mapping.js';
 import type { PoketraceClient } from '../../src/poketrace/client.js';
 import { createTestDb } from '../helpers/test-db.js';
 import { seedCards } from '../helpers/fixtures.js';
@@ -13,7 +13,7 @@ const tcgdexCard = (tcgplayer?: number | string) => ({
 });
 const ptCard = (over: Record<string, unknown> = {}) => ({
   id: UUID, name: 'Charizard ex', cardNumber: '199/165', set: { slug: 'sv-151', name: '151' },
-  productType: 'single', refs: { tcgplayerId: '523456' }, ...over,
+  productType: 'single', variant: 'Holofoil', game: 'pokemon', market: 'US', refs: { tcgplayerId: '523456' }, ...over,
 });
 
 function setup(opts: { tcgdex: () => Response; pt: (path: string, q?: Record<string, string>) => unknown }) {
@@ -60,7 +60,22 @@ describe('resolvePoketraceId', () => {
     it('accepts exactly one match on name, number and set name', async () => {
       const { id, s } = await run([ptCard(), ptCard({ id: 'x', cardNumber: '198/165' }), ptCard({ id: 'y', set: { slug: 'z', name: 'Other' } })]);
       expect(id).toBe(UUID);
-      expect(s.ptCalls[0]).toEqual({ path: '/cards', q: { search: 'Charizard ex', card_number: '199' } });
+      expect(s.ptCalls[0]).toEqual({
+        path: '/cards', q: { search: 'Charizard ex', card_number: '199', game: 'pokemon', market: 'US' },
+      });
+    });
+
+    it('drops results that are not English-language US market cards', async () => {
+      expect((await run([ptCard(), ptCard({ id: 'jp', game: 'pokemon-japanese' })])).id).toBe(UUID);
+      expect((await run([ptCard(), ptCard({ id: 'eu', market: 'EU' })])).id).toBe(UUID);
+      expect((await run([ptCard({ game: 'pokemon-japanese' })])).id).toBeNull();
+      expect((await run([ptCard({ market: 'EU' })])).id).toBeNull();
+      expect((await run([ptCard({ market: undefined })])).id).toBeNull();
+    });
+
+    it('applies the variant rules to search results too', async () => {
+      expect((await run([ptCard({ variant: '1st_Edition_Holofoil' })])).id).toBeNull();
+      expect((await run([ptCard(), ptCard({ id: 'rev', variant: 'Reverse_Holofoil' })])).id).toBe(UUID);
     });
 
     it('returns null on an ambiguous result (two exact matches)', async () => {
@@ -70,6 +85,78 @@ describe('resolvePoketraceId', () => {
     it('returns null when nothing matches exactly', async () => {
       expect((await run([ptCard({ name: 'Charizard ex Tera' })])).id).toBeNull();
     });
+  });
+
+  describe('variants', () => {
+    const run = async (data: unknown[]) => {
+      const db = await createTestDb();
+      await seedCards(db);
+      const s = setup({ tcgdex: () => json(tcgdexCard(523456)), pt: () => ({ data }) });
+      const id = await resolvePoketraceId({ db, client: s.client, fetch: s.fetchFn, now: () => new Date() }, 'sv03.5-199');
+      const { rows } = await db.query<{ external_id: string | null; variant: string | null }>(
+        'select external_id, variant from card_external_ids',
+      );
+      return { id, rows };
+    };
+
+    it('drops first edition and shadowless candidates (the matcher cannot tell edition)', async () => {
+      expect((await run([ptCard({ variant: '1st_Edition_Holofoil' })])).id).toBeNull();
+      expect((await run([ptCard({ variant: '1st_Edition' })])).id).toBeNull();
+      expect((await run([ptCard({ variant: 'First Edition' })])).id).toBeNull();
+      expect((await run([ptCard({ variant: 'Shadowless Holo' })])).id).toBeNull();
+      const r = await run([ptCard({ id: 'first', variant: '1st_Edition_Holofoil' }), ptCard({ variant: 'Unlimited' })]);
+      expect(r.id).toBe(UUID);
+      expect(r.rows).toEqual([{ external_id: UUID, variant: 'Unlimited' }]);
+    });
+
+    it('prefers the non-reverse candidate when several remain', async () => {
+      const r = await run([ptCard({ id: 'rev', variant: 'Reverse_Holofoil' }), ptCard({ variant: 'Holofoil' })]);
+      expect(r.id).toBe(UUID);
+      expect(r.rows).toEqual([{ external_id: UUID, variant: 'Holofoil' }]);
+    });
+
+    it('accepts a lone reverse holo', async () => {
+      expect((await run([ptCard({ variant: 'Reverse_Holofoil' })])).id).toBe(UUID);
+    });
+
+    it('returns null when more than one candidate remains', async () => {
+      expect((await run([ptCard({ variant: 'Holofoil' }), ptCard({ id: 'n', variant: 'Normal' })])).id).toBeNull();
+      expect((await run([ptCard({ variant: 'Reverse_Holofoil' }), ptCard({ id: 'r2', variant: 'Reverse_Holofoil' })])).id)
+        .toBeNull();
+    });
+  });
+
+  it('positive mappings expire after 30 days, then re-resolve', async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    let id = UUID;
+    const s = setup({ tcgdex: () => json(tcgdexCard(523456)), pt: () => ({ data: [ptCard({ id })] }) });
+    let t = new Date('2026-10-03T12:00:00Z');
+    const deps = { db, client: s.client, fetch: s.fetchFn, now: () => t };
+    expect(await resolvePoketraceId(deps, 'sv03.5-199')).toBe(UUID);
+    id = 'new-uuid';
+    t = new Date('2026-11-02T11:00:00Z');
+    expect(await resolvePoketraceId(deps, 'sv03.5-199')).toBe(UUID);
+    expect(s.ptCalls).toHaveLength(1);
+    t = new Date('2026-11-02T12:00:01Z');
+    expect(await resolvePoketraceId(deps, 'sv03.5-199')).toBe('new-uuid');
+    expect(s.ptCalls).toHaveLength(2);
+  });
+
+  it('invalidatePoketraceId turns a mapping into a fresh negative entry', async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    const s = setup({ tcgdex: () => json(tcgdexCard(523456)), pt: () => ({ data: [ptCard()] }) });
+    const t = new Date('2026-10-03T12:00:00Z');
+    const deps = { db, client: s.client, fetch: s.fetchFn, now: () => t };
+    expect(await resolvePoketraceId(deps, 'sv03.5-199')).toBe(UUID);
+    await invalidatePoketraceId(db, 'sv03.5-199', new Date('2026-10-04T00:00:00Z'));
+    const { rows } = await db.query<{ external_id: string | null; resolved_at: Date }>(
+      'select external_id, resolved_at from card_external_ids',
+    );
+    expect(rows).toEqual([{ external_id: null, resolved_at: new Date('2026-10-04T00:00:00Z') }]);
+    expect(await resolvePoketraceId(deps, 'sv03.5-199')).toBeNull();
+    expect(s.ptCalls).toHaveLength(1);
   });
 
   it('falls back to search when TCGdex has no such card (404)', async () => {

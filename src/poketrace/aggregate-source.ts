@@ -1,7 +1,7 @@
 import type { ValuationKey } from '../domain/types.js';
 import type { Log } from '../log.js';
 import type { AggregatePrice, AggregatePriceSource } from '../oracle/aggregate-source.js';
-import type { PoketraceClient } from './client.js';
+import { PoketraceHttpError, type PoketraceClient } from './client.js';
 
 type Key = Parameters<AggregatePriceSource['fetchAggregate']>[0];
 
@@ -54,12 +54,15 @@ export interface PoketraceAggregateDeps {
   /** Card detail whose lastUpdated is older than this is ignored. Default 72. */
   maxAgeHours?: number;
   log?: Log;
+  /** Drops a mapping whose PokeTrace card no longer exists (404), e.g. invalidatePoketraceId. */
+  invalidateId?: (cardId: string) => Promise<void>;
 }
 
 /**
  * Conservative US eBay sold aggregates from PokeTrace's card detail: median30d, else median7d, else avg30d (never the
  * undocumented-window avg). null when the vendor's confidence is low, the data is stale or undated, or the card is not
- * the US/USD market. A mapping failure is logged and returns null (comps path runs); a card detail failure throws.
+ * the US/USD market. A mapping failure is logged and returns null (comps path runs); a card detail failure throws,
+ * except 404, which invalidates the mapping and returns null.
  */
 export function poketraceAggregateSource(deps: PoketraceAggregateDeps): AggregatePriceSource {
   const maxAgeMs = (deps.maxAgeHours ?? DEFAULT_MAX_AGE_HOURS) * 3_600_000;
@@ -76,7 +79,15 @@ export function poketraceAggregateSource(deps: PoketraceAggregateDeps): Aggregat
         return null;
       }
       if (!id) return null;
-      const { data } = await deps.client.get<{ data?: CardDetail }>(`/cards/${encodeURIComponent(id)}`);
+      let data: CardDetail | undefined;
+      try {
+        ({ data } = await deps.client.get<{ data?: CardDetail }>(`/cards/${encodeURIComponent(id)}`));
+      } catch (err) {
+        if (!(err instanceof PoketraceHttpError && err.status === 404)) throw err;
+        await deps.invalidateId?.(key.cardId);
+        deps.log?.('warn', 'poketrace card gone, mapping invalidated', { cardId: key.cardId });
+        return null;
+      }
       if (!data || data.market !== 'US') return null;
       if (data.currency !== undefined && data.currency.toUpperCase() !== 'USD') return null;
 
