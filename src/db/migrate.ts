@@ -12,8 +12,18 @@ export async function migrate(db: Db, dir: string): Promise<string[]> {
   const applied: string[] = [];
   for (const file of files) {
     if (done.has(file)) continue;
+    if (!/^[\w.-]+$/.test(file)) throw new Error(`Invalid migration filename: ${file}`);
     const sql = await readFile(join(dir, file), 'utf8');
-    await db.exec(`begin;\n${sql}\ninsert into schema_migrations (name) values ('${file}');\ncommit;`);
+    try {
+      await db.exec(`begin;\n${sql}\ninsert into schema_migrations (name) values ('${file}');\ncommit;`);
+    } catch (err) {
+      try {
+        await db.exec('rollback');
+      } catch {
+        // ignore rollback failure; surface the original error
+      }
+      throw err;
+    }
     applied.push(file);
   }
   return applied;

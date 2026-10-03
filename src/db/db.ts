@@ -9,8 +9,9 @@ export interface ClosableDb extends Db {
   end(): Promise<void>;
 }
 
-export function pgDb(connectionString: string): ClosableDb {
+export function pgDb(connectionString: string, onError?: (err: Error) => void): ClosableDb {
   const pool = new pg.Pool({ connectionString, max: 5 });
+  pool.on('error', (err) => onError?.(err));
   return {
     async query<T>(text: string, params: unknown[] = []) {
       const r = await pool.query(text, params);
