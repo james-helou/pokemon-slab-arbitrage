@@ -51,7 +51,7 @@ async function listSuspects(db: Db, minMisses: number, now: Date): Promise<Suspe
        order by (lm.stage = 'enriched') desc, lm.id desc
        limit 1
      ) m on true
-     where l.source = 'ebay' and l.gone_at is null and l.miss_count >= $1
+     where l.source = 'ebay' and l.currency = 'USD' and l.gone_at is null and l.miss_count >= $1
        and (l.checked_at is null or l.checked_at < $2)
      order by l.price desc
      limit ${MAX_SUSPECTS_PER_RUN}`,

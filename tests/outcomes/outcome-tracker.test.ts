@@ -152,6 +152,23 @@ describe('runOutcomes', () => {
     expect(state.getItemCalls).toBe(0);
   });
 
+  it('stops observing once the aux budget is spent, but still labels confirmed-gone listings', async () => {
+    const { db, state, deps, outcomes } = await setup();
+    await setSetting(db, 'auxGetItemDailyCap', 0);
+    // 222 has no listing row (needs a getItem); 333 is confirmed gone (needs none).
+    await insertRecommendation(db, makeNewRecommendation({ externalId: 'v1|222|0' }));
+    await upsertListing(db, summaryToListing({ ...SUMMARY, itemId: 'v1|333|0' })!, new Date('2026-10-03T12:00:00Z'));
+    await markGone(db, { source: 'ebay', externalId: 'v1|333|0' }, new Date('2026-10-03T12:05:00Z'), 'out_of_stock');
+    await insertRecommendation(db, makeNewRecommendation({ externalId: 'v1|333|0' }));
+    let valuations = 0;
+    const inner = deps.valuate;
+    deps.valuate = async (key, settings) => { valuations++; return inner(key, settings); };
+    expect(await runOutcomes(deps)).toMatchObject({ due: 3, deferred: 2, written: 1 });
+    expect(valuations).toBe(2);
+    expect(state.getItemCalls).toBe(0);
+    expect((await outcomes()).map((r) => r.listing_final_state)).toEqual(['sold_out']);
+  });
+
   it('re-checks the pause switch between recommendations', async () => {
     const { db, deps, outcomes } = await setup();
     await insertRecommendation(db, makeNewRecommendation({ externalId: 'v1|222|0' }));
@@ -161,7 +178,7 @@ describe('runOutcomes', () => {
       return inner(key, settings);
     };
     const r = await runOutcomes(deps);
-    expect(r).toMatchObject({ status: 'ok', due: 2, written: 1 });
+    expect(r).toMatchObject({ status: 'paused', due: 2, written: 1 });
     expect(await outcomes()).toHaveLength(1);
   });
 });

@@ -14,6 +14,8 @@ export interface ReportRecommendation {
   confidence: number;
   routedTo: string;
   deliveryStatus: string | null;
+  /** valuation_snapshot.compsSource at recommendation time (null on old snapshots). */
+  compsSource: string | null;
 }
 
 export interface ReportOutcome {
@@ -89,6 +91,9 @@ function groupBy<T>(xs: T[], key: (x: T) => string): Map<string, T[]> {
   return out;
 }
 
+/** A free-text value safe inside one markdown table cell. */
+const cell = (s: string) => s.replace(/\r?\n|\r/g, ' ').replace(/\|/g, '\\|');
+
 const fmtCounts = (c: Record<string, number>) => {
   const keys = Object.keys(c).sort();
   return keys.length ? keys.map((k) => `${k} ${c[k]}`).join(', ') : 'none';
@@ -146,8 +151,10 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReport {
   const n = labelled.length;
   const hits = labelled.filter(isHit).length;
   const goods = labelled.filter(isGood).length;
-  const errors = labelled.map(errorOf).filter(isNum);
+  const drifted = labelled.filter((p) => errorOf(p) !== null);
+  const errors = drifted.map(errorOf).filter(isNum);
   const medErr = median(errors);
+  const fixtureBacked = drifted.filter((p) => p.r.compsSource?.includes('fixture')).length;
 
   const calRows = [...groupBy(labelled, (p) => bandLabel(p.r.confidence)).entries()]
     .sort(([a], [b]) => a.localeCompare(b))
@@ -196,7 +203,7 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReport {
     '',
     '## Pass reasons',
     ...(passReasons.length
-      ? ['| Reason | This week | All time |', '|---|---|---|', ...passReasons.map((k) => `| ${k} | ${passWeek[k] ?? 0} | ${passAll[k] ?? 0} |`)]
+      ? ['| Reason | This week | All time |', '|---|---|---|', ...passReasons.map((k) => `| ${cell(k)} | ${passWeek[k] ?? 0} | ${passAll[k] ?? 0} |`)]
       : ['_No passes yet._']),
     '',
     '## Calibration by confidence band',
@@ -204,8 +211,10 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReport {
       ? ['| Confidence band | n | Mean confidence | Hit rate (net > $0) | Good rate (net ≥ min) |', '|---|---|---|---|---|', ...calRows]
       : ['_No labelled outcomes yet._']),
     '',
-    '## Valuation error',
-    `- Median absolute % error: ${pct(medErr, 1)} (n=${errors.length})`,
+    '## Valuation drift (rec-time vs horizon)',
+    'Not accuracy: both sides come from the same oracle, so this measures how far its value moved, not how wrong it was.',
+    `- Median absolute % drift: ${pct(medErr, 1)} (n=${errors.length})`,
+    `- Fixture-backed rec-time valuations: ${fixtureBacked} of ${drifted.length}`,
     `- By horizon: ${byHorizon}`,
     '',
     '## Hit rate',
@@ -230,7 +239,7 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReport {
     `**Weekly calibration ${input.week}**`,
     `Recommendations this week: ${weekRecs.length} · outcomes recorded: ${weekOutcomes.length}`,
     `Hit rate (net > $0): ${pct(rate(hits, n))} (${hits}/${n}) · good (net ≥ $${input.minNet}): ${pct(rate(goods, n))}`,
-    `Median abs valuation error: ${pct(medErr, 1)} (n=${errors.length})`,
+    `Valuation drift (rec-time vs horizon): ${pct(medErr, 1)} (n=${errors.length})`,
     `Full report attached as ${input.week}.md. Save it to vault/journal/weekly/ or run npm run report:weekly.`,
   ].join('\n');
 

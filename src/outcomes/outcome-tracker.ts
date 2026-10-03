@@ -37,8 +37,14 @@ interface Observation {
   price: number | null;
 }
 
-/** Listing state now. A confirmed gone listing is trusted; anything else costs one budgeted getItem. Null = no budget. */
-async function observe(deps: OutcomeDeps, settings: Settings, externalId: string): Promise<Observation | null> {
+interface ListingRow {
+  /** Final state already confirmed in our DB (no eBay call needed), else null. */
+  known: Observation | null;
+  lastPrice: number | null;
+}
+
+/** What our DB already knows about the listing. A confirmed gone listing is trusted. */
+async function listingRow(deps: OutcomeDeps, externalId: string): Promise<ListingRow> {
   const { rows } = await deps.db.query<{ price: string; gone_at: Date | string | null; gone_reason: string | null }>(
     `select price, gone_at, gone_reason from listings where source = 'ebay' and external_id = $1`,
     [externalId],
@@ -48,8 +54,15 @@ async function observe(deps: OutcomeDeps, settings: Settings, externalId: string
   if (row?.gone_at && row.gone_reason !== 'window_miss') {
     const state: ListingFinalState =
       row.gone_reason === 'out_of_stock' ? 'sold_out' : row.gone_reason === 'not_found' ? 'not_found' : 'gone_unknown';
-    return { state, price: lastPrice };
+    return { known: { state, price: lastPrice }, lastPrice };
   }
+  return { known: null, lastPrice };
+}
+
+/** Listing state now via one budgeted getItem. Null = no aux budget. */
+async function observeLive(
+  deps: OutcomeDeps, settings: Settings, externalId: string, lastPrice: number | null,
+): Promise<Observation | null> {
   if (!(await claimAuxCall(deps.db, deps.budget, settings.auxGetItemDailyCap, deps.now))) return null;
   const ref = { source: 'ebay' as const, externalId };
   const item = await deps.ebay.getItem(externalId);
@@ -71,6 +84,7 @@ async function observe(deps: OutcomeDeps, settings: Settings, externalId: string
  * For every recommendation with elapsed horizons (7/14/30 d) lacking an outcome: observe the listing once,
  * value the card/grade now, label the counterfactual net against settings.minNet, write one row per horizon.
  * Idempotent (unique recommendation+horizon). Per-recommendation errors are isolated and retried next run.
+ * Once the aux budget runs out, the rest of the run only handles listings already confirmed gone (no getItem needed).
  */
 export async function runOutcomes(deps: OutcomeDeps): Promise<OutcomeRunSummary> {
   const sum: OutcomeRunSummary = { status: 'ok', due: 0, written: 0, deferred: 0, errors: 0 };
@@ -79,14 +93,24 @@ export async function runOutcomes(deps: OutcomeDeps): Promise<OutcomeRunSummary>
   const channels = await loadChannels(deps.db);
   const due = await dueOutcomes(deps.db, deps.now(), MAX_DUE_PER_RUN);
   sum.due = due.length;
+  let auxExhausted = false;
   for (const rec of due) {
     try {
       // Re-check the kill switch per recommendation so /pause takes effect mid-run.
-      if ((await loadSettings(deps.db)).paused) break;
+      if ((await loadSettings(deps.db)).paused) {
+        sum.status = 'paused';
+        break;
+      }
+      const listing = await listingRow(deps, rec.externalId);
+      if (!listing.known && auxExhausted) {
+        sum.deferred++;
+        continue;
+      }
       // Value first: a failing valuation must not spend an aux getItem every run.
       const valuation = await deps.valuate({ cardId: rec.cardId, grader: rec.grader, grade: rec.grade }, settings);
-      const obs = await observe(deps, settings, rec.externalId);
+      const obs = listing.known ?? (await observeLive(deps, settings, rec.externalId, listing.lastPrice));
       if (!obs) {
+        auxExhausted = true;
         sum.deferred++;
         continue;
       }

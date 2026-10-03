@@ -54,6 +54,13 @@ describe('sweepDisappeared', () => {
     expect(calls()).toBe(1);
   });
 
+  it('ignores non-USD listings', async () => {
+    const { db, deps, calls } = await setup();
+    await db.query(`update listings set currency = 'GBP'`);
+    expect(await sweepDisappeared(deps)).toMatchObject({ suspects: 0 });
+    expect(calls()).toBe(0);
+  });
+
   it('confirms OUT_OF_STOCK as out_of_stock', async () => {
     const { deps, listing, comps } = await setup({ getItem: async () => SOLD_OUT });
     expect(await sweepDisappeared(deps)).toMatchObject({ soldOut: 1, compsWritten: 1 });

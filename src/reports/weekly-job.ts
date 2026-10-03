@@ -1,5 +1,5 @@
 import type { Db } from '../db/db.js';
-import { hasJobRun, recordJobRun } from '../jobs/job-runs.js';
+import { claimJobRun, hasJobRun, recordJobRun, releaseJobRun } from '../jobs/job-runs.js';
 import type { Log } from '../log.js';
 import { loadSettings } from '../settings/settings.js';
 import { previousIsoWeek } from './iso-week.js';
@@ -16,19 +16,28 @@ export interface WeeklyJobDeps {
   post: (summary: string, file: { name: string; body: string }) => Promise<void>;
 }
 
-export type WeeklyJobStatus = 'paused' | 'already_ran' | 'posted';
+export type WeeklyJobStatus = 'paused' | 'already_ran' | 'in_progress' | 'posted';
 
 /**
- * Safe to call every hour: reports the last complete ISO week once. The job_runs row is written only after a
- * successful post, so a Discord failure retries on the next tick. Skipped while paused; catches up on resume.
+ * Safe to call every hour: reports the last complete ISO week once. A job_runs claim is taken before posting (so
+ * concurrent ticks post once) and marked done after; a failed post releases it, so the next tick retries. A claim
+ * abandoned by a crash is taken over after an hour. Skipped while paused; catches up on resume.
  */
 export async function runWeeklyReportJob(deps: WeeklyJobDeps): Promise<{ status: WeeklyJobStatus; week: string }> {
   const settings = await loadSettings(deps.db);
   const week = previousIsoWeek(deps.now());
   if (settings.paused) return { status: 'paused', week };
   if (await hasJobRun(deps.db, WEEKLY_REPORT_JOB, week)) return { status: 'already_ran', week };
-  const report = buildWeeklyReport(await loadReportInput(deps.db, week, deps.now(), settings.minNet));
-  await deps.post(report.summary, { name: `${week}.md`, body: report.markdown });
+  if (!(await claimJobRun(deps.db, WEEKLY_REPORT_JOB, week, deps.now()))) {
+    return { status: (await hasJobRun(deps.db, WEEKLY_REPORT_JOB, week)) ? 'already_ran' : 'in_progress', week };
+  }
+  try {
+    const report = buildWeeklyReport(await loadReportInput(deps.db, week, deps.now(), settings.minNet));
+    await deps.post(report.summary, { name: `${week}.md`, body: report.markdown });
+  } catch (err) {
+    await releaseJobRun(deps.db, WEEKLY_REPORT_JOB, week);
+    throw err;
+  }
   await recordJobRun(deps.db, WEEKLY_REPORT_JOB, week, deps.now());
   return { status: 'posted', week };
 }

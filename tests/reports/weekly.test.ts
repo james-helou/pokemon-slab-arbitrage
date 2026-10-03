@@ -8,10 +8,10 @@ const INPUT: WeeklyReportInput = {
   generatedAt: d('2026-10-05T01:00:00Z'),
   minNet: 75,
   recommendations: [
-    { id: 1, createdAt: d('2026-09-21T10:00:00Z'), grader: 'PSA', grade: 10, buyTotal: 380, predictedValue: 600, confidence: 0.85, routedTo: 'alerts', deliveryStatus: 'sent' },
-    { id: 2, createdAt: d('2026-09-30T10:00:00Z'), grader: 'PSA', grade: 9, buyTotal: 250, predictedValue: 400, confidence: 0.65, routedTo: 'over_budget', deliveryStatus: 'sent' },
-    { id: 3, createdAt: d('2026-09-10T10:00:00Z'), grader: 'PSA', grade: 10, buyTotal: 700, predictedValue: 1000, confidence: 0.92, routedTo: 'alerts', deliveryStatus: 'expired' },
-    { id: 4, createdAt: d('2026-10-01T10:00:00Z'), grader: 'PSA', grade: 10, buyTotal: 300, predictedValue: 450, confidence: 0.7, routedTo: 'alerts', deliveryStatus: 'pending' },
+    { id: 1, createdAt: d('2026-09-21T10:00:00Z'), grader: 'PSA', grade: 10, buyTotal: 380, predictedValue: 600, confidence: 0.85, routedTo: 'alerts', deliveryStatus: 'sent', compsSource: 'fixture' },
+    { id: 2, createdAt: d('2026-09-30T10:00:00Z'), grader: 'PSA', grade: 9, buyTotal: 250, predictedValue: 400, confidence: 0.65, routedTo: 'over_budget', deliveryStatus: 'sent', compsSource: 'fixture' },
+    { id: 3, createdAt: d('2026-09-10T10:00:00Z'), grader: 'PSA', grade: 10, buyTotal: 700, predictedValue: 1000, confidence: 0.92, routedTo: 'alerts', deliveryStatus: 'expired', compsSource: 'poketrace' },
+    { id: 4, createdAt: d('2026-10-01T10:00:00Z'), grader: 'PSA', grade: 10, buyTotal: 300, predictedValue: 450, confidence: 0.7, routedTo: 'alerts', deliveryStatus: 'pending', compsSource: null },
   ],
   outcomes: [
     { recommendationId: 1, horizonDays: 7, label: 'good', marketValue: 570, netAtHorizon: 100, listingFinalState: 'sold_out', observedAt: d('2026-09-28T11:00:00Z') },
@@ -59,8 +59,12 @@ describe('buildWeeklyReport', () => {
     expect(markdown).toContain('| 0.90-1.00 | 1 | 0.92 | 0% | 0% |');
   });
 
-  it('reports valuation error, hit rate and segments', () => {
-    expect(markdown).toContain('- Median absolute % error: 15.1% (n=2)');
+  it('reports valuation drift, hit rate and segments', () => {
+    expect(markdown).toContain('## Valuation drift (rec-time vs horizon)');
+    expect(markdown).not.toContain('## Valuation error');
+    expect(markdown).toContain('both sides come from the same oracle');
+    expect(markdown).toContain('- Median absolute % drift: 15.1% (n=2)');
+    expect(markdown).toContain('- Fixture-backed rec-time valuations: 1 of 2');
     expect(markdown).toContain('- By horizon: 7d 8.2% (n=2) · 14d 25.0% (n=1) · 30d n/a (n=0)');
     expect(markdown).toContain('- Net > $0: 50% (1/2)');
     expect(markdown).toContain('- Net ≥ $75: 50% (1/2)');
@@ -73,8 +77,16 @@ describe('buildWeeklyReport', () => {
   it('produces a short Discord summary', () => {
     expect(summary).toContain('Weekly calibration 2026-W40');
     expect(summary).toContain('Hit rate (net > $0): 50% (1/2)');
-    expect(summary).toContain('Median abs valuation error: 15.1% (n=2)');
+    expect(summary).toContain('Valuation drift (rec-time vs horizon): 15.1% (n=2)');
     expect(summary.length).toBeLessThan(2000);
+  });
+
+  it('escapes pipes and collapses newlines in pass reasons', () => {
+    const r = buildWeeklyReport({
+      ...INPUT,
+      decisions: [{ recommendationId: 2, action: 'pass', reason: 'bad | photos\nand\r\nedges', createdAt: d('2026-09-30T12:00:00Z') }],
+    });
+    expect(r.markdown).toContain('| bad \\| photos and edges | 1 | 1 |');
   });
 
   it('renders an empty week without crashing', () => {

@@ -10,7 +10,8 @@ export async function loadReportInput(db: Db, week: string, generatedAt: Date, m
   const { end } = isoWeekRange(week);
   const recs = await db.query<Record<string, unknown>>(
     `select r.id, r.created_at, r.grader, r.grade, r.buy_total, r.confidence, r.routed_to,
-       (r.valuation_snapshot->>'value')::numeric as predicted_value, d.status as delivery_status
+       (r.valuation_snapshot->>'value')::numeric as predicted_value,
+       r.valuation_snapshot->>'compsSource' as comps_source, d.status as delivery_status
      from recommendations r left join alert_deliveries d on d.recommendation_id = r.id
      where r.created_at < $1 order by r.id`,
     [end],
@@ -38,6 +39,7 @@ export async function loadReportInput(db: Db, week: string, generatedAt: Date, m
       confidence: Number(r.confidence),
       routedTo: String(r.routed_to),
       deliveryStatus: (r.delivery_status as string | null | undefined) ?? null,
+      compsSource: (r.comps_source as string | null | undefined) ?? null,
     })),
     outcomes: outs.rows.map((o) => ({
       recommendationId: Number(o.recommendation_id),

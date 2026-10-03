@@ -64,6 +64,8 @@ describe('migrate', () => {
     await expect(
       db.query(`insert into job_runs (job, period, ran_at) values ('weekly_report', '2026-W40', now())`),
     ).rejects.toThrow();
+    const { rows } = await db.query<{ status: string; claimed_at: Date | null }>('select status, claimed_at from job_runs');
+    expect(rows).toEqual([{ status: 'done', claimed_at: null }]);
   });
 
   it('rolls back a failing migration and leaves the db usable', async () => {

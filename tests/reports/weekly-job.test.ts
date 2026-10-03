@@ -51,6 +51,35 @@ describe('runWeeklyReportJob', () => {
     expect(posts).toHaveLength(1);
   });
 
+  it('posts once when two ticks race', async () => {
+    const { deps, posts } = await setup();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const slow: WeeklyJobDeps = { ...deps, post: async (s, f) => { await gate; await deps.post(s, f); } };
+    const both = Promise.all([runWeeklyReportJob(slow), runWeeklyReportJob(slow)]);
+    setTimeout(release, 50);
+    const statuses = (await both).map((r) => r.status).sort();
+    expect(statuses).toEqual(['in_progress', 'posted']);
+    expect(posts).toHaveLength(1);
+    expect((await runWeeklyReportJob(deps)).status).toBe('already_ran');
+  });
+
+  it('a claim is not a completed run; a stale claim (over 1 hour) is re-claimed', async () => {
+    const { db, deps, posts } = await setup();
+    await db.query(
+      `insert into job_runs (job, period, ran_at, status, claimed_at) values ('weekly_report', '2026-W40', $1, 'claimed', $1)`,
+      [new Date(NOW().getTime() - 30 * 60_000)],
+    );
+    expect(await hasJobRun(db, 'weekly_report', '2026-W40')).toBe(false);
+    expect((await runWeeklyReportJob(deps)).status).toBe('in_progress');
+    expect(posts).toHaveLength(0);
+    await db.query(`update job_runs set claimed_at = $1`, [new Date(NOW().getTime() - 61 * 60_000)]);
+    expect((await runWeeklyReportJob(deps)).status).toBe('posted');
+    expect(posts).toHaveLength(1);
+    const { rows } = await db.query<{ status: string }>('select status from job_runs');
+    expect(rows).toEqual([{ status: 'done' }]);
+  });
+
   it('skips while paused and catches up after resume', async () => {
     const { db, deps, posts } = await setup();
     await setSetting(db, 'paused', true);

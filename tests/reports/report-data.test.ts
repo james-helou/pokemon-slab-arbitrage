@@ -23,7 +23,7 @@ describe('loadReportInput', () => {
     const input = await loadReportInput(db, isoWeekOf(generatedAt), generatedAt, 75);
     expect(input.recommendations[0]).toMatchObject({
       id, grader: 'PSA', grade: 10, buyTotal: 379.85, predictedValue: 600, confidence: 0.848,
-      routedTo: 'alerts', deliveryStatus: 'pending',
+      routedTo: 'alerts', deliveryStatus: 'pending', compsSource: 'fixture',
     });
     expect(input.outcomes[0]).toMatchObject({
       recommendationId: id, horizonDays: 7, label: 'good', marketValue: 600, netAtHorizon: 133.75, listingFinalState: 'live',
