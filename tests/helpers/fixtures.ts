@@ -32,3 +32,42 @@ export const ITEM: EbayItem = {
   ],
   estimatedAvailabilities: [{ estimatedAvailabilityStatus: 'IN_STOCK' }],
 };
+
+import type { NewRecommendation } from '../../src/ledger/ledger-repo.js';
+
+export function makeNewRecommendation(overrides: Partial<NewRecommendation> = {}): NewRecommendation {
+  return {
+    source: 'ebay',
+    externalId: 'v1|111|0',
+    cardId: 'sv3pt5-199',
+    grader: 'PSA',
+    grade: 10,
+    cert: '12345678',
+    listingSnapshot: {
+      title: SUMMARY.title, url: SUMMARY.itemWebUrl, imageUrl: 'https://i.ebayimg.com/111.jpg',
+      price: 350, shipping: 5, sellerUsername: 'goodseller', sellerFeedbackScore: 500,
+    },
+    cardSnapshot: { name: 'Charizard ex', setName: '151', number: '199' },
+    valuationSnapshot: {
+      cardId: 'sv3pt5-199', grader: 'PSA', grade: 10, value: 600, low: 592.5, high: 607.5, compCount: 6,
+      newestCompAgeDays: 1, confidence: 0.893, compsSource: 'fixture', oracleVersion: 'v1.0.0',
+      computedAt: '2026-10-03T12:00:00.000Z',
+    },
+    channelNets: [
+      { channel: 'ebay', salePrice: 600, net: 133.75, daysToSell: 10 },
+      { channel: 'tcgplayer', salePrice: 570, net: 107.82, daysToSell: 21 },
+    ],
+    bestChannel: 'ebay',
+    buyTotal: 379.85,
+    bestNet: 133.75,
+    roi: 0.3521,
+    confidence: 0.848,
+    rank: 113.42,
+    redFlags: [],
+    routedTo: 'alerts',
+    scorerVersion: 'v1.0.0',
+    matcherVersion: 'v1.0.0',
+    oracleVersion: 'v1.0.0',
+    ...overrides,
+  };
+}
