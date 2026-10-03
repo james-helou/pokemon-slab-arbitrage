@@ -55,4 +55,30 @@ describe('every', () => {
     expect(runs).toBeGreaterThanOrEqual(2);
     expect(logs.some((m) => m.includes('skipped'))).toBe(true);
   });
+
+  it('stop() resolves only after the in-flight task finishes', async () => {
+    let finished = false;
+    let started = false;
+    const stop = every(async () => 1000, async () => { started = true; await sleep(50); finished = true; }, silentLog, 'scan');
+    await sleep(10);
+    expect(started).toBe(true);
+    await stop();
+    expect(finished).toBe(true);
+  });
+
+  it('stop() gives up after the timeout when the task hangs', async () => {
+    const logs: string[] = [];
+    const stop = every(async () => 1000, () => new Promise<void>(() => {}), (_l, m) => void logs.push(m), 'scan', 30);
+    await sleep(10);
+    const t0 = Date.now();
+    await stop();
+    expect(Date.now() - t0).toBeLessThan(500);
+    expect(logs.some((m) => m.includes('timed out'))).toBe(true);
+  });
+
+  it('stop() resolves immediately when idle', async () => {
+    const stop = every(async () => 1000, async () => {}, silentLog, 'scan');
+    await sleep(10);
+    await stop();
+  });
 });

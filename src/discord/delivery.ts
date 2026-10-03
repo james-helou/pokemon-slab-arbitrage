@@ -1,5 +1,5 @@
 import type { Db } from '../db/db.js';
-import { dueDeliveries, markDelivered, markFailed, type Route } from '../ledger/ledger-repo.js';
+import { dueDeliveries, expireStaleDeliveries, markDelivered, markFailed, type Route } from '../ledger/ledger-repo.js';
 import { loadSettings } from '../settings/settings.js';
 import type { Log } from '../log.js';
 import { buildAlertPayload, type AlertPayload } from './alert-payload.js';
@@ -14,7 +14,10 @@ export interface DeliveryDeps {
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : 'unknown error');
 
 export async function deliverPending(deps: DeliveryDeps): Promise<{ sent: number; failed: number }> {
-  if ((await loadSettings(deps.db)).paused) return { sent: 0, failed: 0 };
+  const settings = await loadSettings(deps.db);
+  if (settings.paused) return { sent: 0, failed: 0 };
+  const expired = await expireStaleDeliveries(deps.db, deps.now(), settings.maxAlertAgeMinutes);
+  if (expired) deps.log('warn', 'alert deliveries expired', { expired, maxAlertAgeMinutes: settings.maxAlertAgeMinutes });
   let sent = 0;
   let failed = 0;
   // dueDeliveries leases the rows it returns, so overlapping ticks never double-send.

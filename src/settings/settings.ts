@@ -17,6 +17,9 @@ export interface Settings {
   /** Minimum matcher confidence required to proceed (title-only PSA match is 0.855). */
   minMatchConfidence: number;
   scanIntervalSeconds: number;
+  deliveryIntervalSeconds: number;
+  /** Queued alerts older than this are expired instead of sent. */
+  maxAlertAgeMinutes: number;
   browserAgentEnabled: boolean;
 }
 
@@ -33,14 +36,30 @@ export const DEFAULT_SETTINGS: Settings = {
   minCompCount: 3,
   minMatchConfidence: 0.85,
   scanIntervalSeconds: 90,
+  deliveryIntervalSeconds: 15,
+  maxAlertAgeMinutes: 15,
   browserAgentEnabled: false,
+};
+
+/** Lower bounds for DB-loaded values that would otherwise hammer eBay or Discord. */
+const MINIMUMS: Partial<Record<keyof Settings, number>> = {
+  scanIntervalSeconds: 30,
+  deliveryIntervalSeconds: 5,
+  maxAlertAgeMinutes: 1,
 };
 
 export async function loadSettings(db: Db): Promise<Settings> {
   const { rows } = await db.query<{ key: string; value: unknown }>('select key, value from settings');
   const out: Settings = { ...DEFAULT_SETTINGS };
   for (const r of rows) {
-    if (r.key in DEFAULT_SETTINGS) (out as unknown as Record<string, unknown>)[r.key] = r.value;
+    if (!(r.key in DEFAULT_SETTINGS)) continue;
+    const key = r.key as keyof Settings;
+    const dflt = DEFAULT_SETTINGS[key];
+    let value = r.value;
+    if (typeof dflt === 'number') {
+      value = typeof value === 'number' && Number.isFinite(value) ? Math.max(value, MINIMUMS[key] ?? -Infinity) : dflt;
+    }
+    (out as unknown as Record<string, unknown>)[key] = value;
   }
   return out;
 }

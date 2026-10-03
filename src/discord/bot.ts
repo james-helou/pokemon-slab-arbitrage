@@ -1,5 +1,5 @@
 import {
-  Client, Events, GatewayIntentBits, MessageFlags, REST, Routes, SlashCommandBuilder,
+  Client, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder,
   type Interaction, type MessageCreateOptions,
 } from 'discord.js';
 import type { Db } from '../db/db.js';
@@ -7,6 +7,7 @@ import type { Route } from '../ledger/ledger-repo.js';
 import type { Log } from '../log.js';
 import type { AlertPayload } from './alert-payload.js';
 import { handleCommand, handleComponent } from './handlers.js';
+import { respondEphemeral } from './respond.js';
 
 export const COMMANDS = [
   new SlashCommandBuilder().setName('pause').setDescription('Pause scanning and alerts (kill switch)'),
@@ -40,26 +41,27 @@ export async function startBot(o: BotOptions): Promise<Bot> {
 
   async function onInteraction(i: Interaction) {
     if (i.isChatInputCommand()) {
-      const text = await handleCommand({ db: o.db, ebayUsedToday: o.ebayUsedToday }, i.commandName, {
-        amount: i.options.getNumber('amount') ?? undefined,
-      });
-      await i.reply({ content: text, flags: MessageFlags.Ephemeral });
+      await respondEphemeral(i, async () => ({
+        content: await handleCommand({ db: o.db, ebayUsedToday: o.ebayUsedToday }, i.commandName, {
+          amount: i.options.getNumber('amount') ?? undefined,
+        }),
+      }), o.log);
       return;
     }
     if (i.isButton() || i.isStringSelectMenu()) {
       const values = i.isStringSelectMenu() ? i.values : [];
-      const r = await handleComponent(o.db, i.customId, values, i.user.username);
-      await i.reply({
-        content: r.reply,
-        components: (r.components ?? []) as never,
-        flags: MessageFlags.Ephemeral,
-      });
+      await respondEphemeral(i, async () => {
+        const r = await handleComponent(o.db, i.customId, values, i.user.username);
+        return { content: r.reply, components: (r.components ?? []) as never[] };
+      }, o.log);
     }
   }
 
   client.on(Events.InteractionCreate, (i) => {
-    onInteraction(i).catch((err) => o.log('error', 'interaction failed', { err: String(err) }));
+    onInteraction(i).catch((err) => o.log('error', 'interaction failed', { message: err instanceof Error ? err.message : String(err) }));
   });
+  client.on(Events.Error, (e) => o.log('error', 'discord client error', { message: e.message }));
+  client.on(Events.ShardError, (e) => o.log('error', 'discord shard error', { message: e.message }));
   const ready = new Promise<void>((resolve) => client.once(Events.ClientReady, () => resolve()));
   await client.login(o.token);
   await ready;

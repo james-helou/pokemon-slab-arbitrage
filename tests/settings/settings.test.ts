@@ -22,4 +22,20 @@ describe('settings', () => {
     expect(s.minNet).toBe(100);
     expect('bogus' in s).toBe(false);
   });
+
+  it('clamps DB-loaded intervals and falls back on non-finite values', async () => {
+    const db = await createTestDb();
+    const put = (k: string, v: string) => db.query(`insert into settings (key, value) values ($1, $2::jsonb) on conflict (key) do update set value = excluded.value`, [k, v]);
+    await put('scanIntervalSeconds', '1');
+    await put('deliveryIntervalSeconds', '0');
+    await put('minNet', '"abc"');
+    await put('maxAlertAgeMinutes', 'null');
+    const s = await loadSettings(db);
+    expect(s.scanIntervalSeconds).toBe(30);
+    expect(s.deliveryIntervalSeconds).toBe(5);
+    expect(s.minNet).toBe(DEFAULT_SETTINGS.minNet);
+    expect(s.maxAlertAgeMinutes).toBe(15);
+    await put('scanIntervalSeconds', '120');
+    expect((await loadSettings(db)).scanIntervalSeconds).toBe(120);
+  });
 });

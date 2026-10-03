@@ -1,3 +1,5 @@
+import { ensureCatalog } from './catalog/ensure.js';
+import { syncCatalog } from './catalog/sync.js';
 import { loadConfig } from './config.js';
 import { pgDb } from './db/db.js';
 import { migrate } from './db/migrate.js';
@@ -18,8 +20,11 @@ async function main() {
   // Applies every migrations/*.sql not yet recorded (001, 002, 003, ...) before anything else runs.
   log('info', 'migrations', { applied: await migrate(db, 'migrations') });
 
-  const { rows } = await db.query<{ n: number }>('select count(*)::int as n from cards');
-  if (rows[0]!.n === 0) log('warn', 'card catalog is empty: run `npm run catalog:sync`');
+  // The scan loop must never run against an empty catalog (every listing would be marked evaluated as no_match).
+  if (!(await ensureCatalog(db, () => syncCatalog(db, fetch, cfg.POKEMONTCG_API_KEY, log), log))) {
+    await db.end();
+    process.exit(1);
+  }
 
   const now = () => new Date();
   const budget = createBudget(db, 'ebay_browse', cfg.EBAY_DAILY_CALL_LIMIT, now);
@@ -49,7 +54,7 @@ async function main() {
     'scan',
   );
   const stopDeliver = every(
-    async () => 15_000,
+    async () => (await loadSettings(db)).deliveryIntervalSeconds * 1000,
     async () => {
       const r = await deliverPending({ db, send: bot.send, now, log });
       if (r.sent || r.failed) log('info', 'deliveries', r);
@@ -63,10 +68,10 @@ async function main() {
     if (shuttingDown) return;
     shuttingDown = true;
     log('info', 'shutting down', { signal });
-    stopScan();
-    stopDeliver();
     let code = 0;
     try {
+      // Let any in-flight scan/delivery finish (bounded) before closing the bot and DB under it.
+      await Promise.all([stopScan(), stopDeliver()]);
       await bot.stop();
       await db.end();
     } catch (err) {

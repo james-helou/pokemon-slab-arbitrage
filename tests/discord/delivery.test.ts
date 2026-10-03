@@ -6,7 +6,8 @@ import { silentLog } from '../../src/log.js';
 import { createTestDb } from '../helpers/test-db.js';
 import { makeNewRecommendation, seedCards } from '../helpers/fixtures.js';
 
-const NOW = new Date('2026-10-03T12:00:00Z');
+// Recommendations are stamped with the DB clock, so "now" must be real time for the max-age check.
+const NOW = new Date();
 
 describe('deliverPending', () => {
   it('sends to the routed channel and does not resend', async () => {
@@ -41,6 +42,7 @@ describe('deliverPending', () => {
     await seedCards(db);
     const id = (await insertRecommendation(db, makeNewRecommendation()))!;
     await insertDelivery(db, id, 'alerts');
+    await setSetting(db, 'maxAlertAgeMinutes', 100_000);
     const send = async () => { throw new Error('discord down'); };
     const logged: string[] = [];
     const log = (_level: string, msg: string) => { logged.push(msg); };
@@ -95,5 +97,31 @@ describe('deliverPending', () => {
     await deliverPending({ db, send: async () => { throw err; }, now: () => NOW, log: silentLog });
     const { rows } = await db.query<{ last_error: string }>('select last_error from alert_deliveries');
     expect(rows[0]!.last_error).toBe('boom');
+  });
+
+  it('expires a 20-minute-old queued delivery without sending it', async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    const id = (await insertRecommendation(db, makeNewRecommendation()))!;
+    await insertDelivery(db, id, 'alerts');
+    const sent: Route[] = [];
+    const logged: string[] = [];
+    const log = (_l: string, msg: string) => { logged.push(msg); };
+    const later = new Date(Date.now() + 20 * 60_000);
+    const send = async (route: Route) => { sent.push(route); return 'm'; };
+    expect(await deliverPending({ db, send, now: () => later, log })).toEqual({ sent: 0, failed: 0 });
+    expect(sent).toEqual([]);
+    const { rows } = await db.query<{ status: string }>('select status from alert_deliveries');
+    expect(rows[0]!.status).toBe('expired');
+    expect(logged).toContain('alert deliveries expired');
+  });
+
+  it('still sends a 5-minute-old queued delivery', async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    const id = (await insertRecommendation(db, makeNewRecommendation()))!;
+    await insertDelivery(db, id, 'alerts');
+    const later = new Date(Date.now() + 5 * 60_000);
+    expect(await deliverPending({ db, send: async () => 'm', now: () => later, log: silentLog })).toEqual({ sent: 1, failed: 0 });
   });
 });

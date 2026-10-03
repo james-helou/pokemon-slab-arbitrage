@@ -114,6 +114,19 @@ export async function insertDelivery(db: Db, recommendationId: number, route: Ro
   ]);
 }
 
+/** Marks unsent deliveries whose recommendation is older than maxAgeMinutes as 'expired'. Returns how many. */
+export async function expireStaleDeliveries(db: Db, now: Date, maxAgeMinutes: number): Promise<number> {
+  const { rows } = await db.query(
+    `update alert_deliveries d set status = 'expired', updated_at = $1::timestamptz, next_attempt_at = null
+     from recommendations r
+     where r.id = d.recommendation_id and d.status <> 'sent' and d.status <> 'expired'
+       and r.created_at < $1::timestamptz - make_interval(mins => $2)
+     returning d.recommendation_id`,
+    [now, maxAgeMinutes],
+  );
+  return rows.length;
+}
+
 /**
  * Atomically claims due deliveries by leasing them (next_attempt_at pushed into the future),
  * so overlapping ticks never receive the same row. markDelivered/markFailed reset the schedule.
@@ -128,7 +141,7 @@ export async function dueDeliveries(
        update alert_deliveries set next_attempt_at = $1::timestamptz + make_interval(secs => $4)
        where recommendation_id in (
          select d.recommendation_id from alert_deliveries d join recommendations r on r.id = d.recommendation_id
-         where d.status <> 'sent' and d.attempts < $3
+         where d.status not in ('sent', 'expired') and d.attempts < $3
            and (d.next_attempt_at is null or d.next_attempt_at <= $1::timestamptz)
          order by r.rank desc limit $2
          for update of d skip locked
