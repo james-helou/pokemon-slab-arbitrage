@@ -7,8 +7,9 @@ export const AUX_SOURCE = 'ebay_aux';
 export const AUX_MAIN_RESERVE_RATIO = 0.8;
 
 /**
- * Claims one auxiliary getItem call. Returns false (and records nothing) when today's aux cap is spent or the
- * main budget is past the reserve ratio. The call itself still goes through the eBay client, so it also counts
+ * Claims one auxiliary getItem call. Returns false when today's aux cap is spent or the main budget is past the
+ * reserve ratio; both are checked before anything is recorded, so a refusal normally costs nothing. Only a
+ * concurrent race past the cap can leave the aux counter one over (beforeCall increments, then throws). The call itself still goes through the eBay client, so it also counts
  * against the main budget.
  */
 export async function claimAuxCall(db: Db, main: Budget, cap: number, now: () => Date): Promise<boolean> {

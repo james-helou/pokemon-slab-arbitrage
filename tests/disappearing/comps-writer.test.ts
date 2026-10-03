@@ -93,4 +93,15 @@ describe('recordDisappearingComps', () => {
     const { rows } = await db.query<{ source_ref: string }>('select source_ref from comps');
     expect(rows.map((r) => r.source_ref)).toEqual(['ebay:plain:not_found']);
   });
+
+  it('skips non-USD listings (comps are USD)', async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    await gone(db, 'usd');
+    await gone(db, 'cad');
+    await db.query(`update listings set currency = 'CAD' where external_id = 'cad'`);
+    expect(await recordDisappearingComps(db, 0.85, NOW)).toBe(1);
+    const { rows } = await db.query<{ source_ref: string }>('select source_ref from comps');
+    expect(rows.map((r) => r.source_ref)).toEqual(['ebay:usd:not_found']);
+  });
 });

@@ -25,7 +25,7 @@ export async function recordDisappearingComps(db: Db, minMatchConfidence: number
        order by (lm.stage = 'enriched') desc, lm.id desc
        limit 1
      ) m on true
-     where l.source = 'ebay'
+     where l.source = 'ebay' and l.currency = 'USD'
        and l.gone_reason in ('out_of_stock', 'not_found')
        and l.gone_at >= $1
        and l.last_seen_at <= l.gone_at
