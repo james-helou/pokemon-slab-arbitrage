@@ -1,6 +1,17 @@
 import type { Listing } from '../../domain/types.js';
 import type { EbayItem, EbayItemSummary } from './ebay-client.js';
 
+/**
+ * Removes the seller username from an eBay payload before it is stored. We never persist eBay user data
+ * (basis of the Marketplace Account Deletion exemption); feedback stats are kept for the risk check.
+ */
+function scrubSeller<T extends EbayItemSummary>(s: T): T {
+  if (!s.seller) return s;
+  const seller: Partial<NonNullable<EbayItemSummary['seller']>> = { ...s.seller };
+  delete seller.username;
+  return { ...s, seller: seller as EbayItemSummary['seller'] };
+}
+
 /** Returns null (drop the listing) when the price is not finite USD. */
 export function summaryToListing(s: EbayItemSummary): Listing | null {
   const price = Number(s.price.value);
@@ -16,12 +27,12 @@ export function summaryToListing(s: EbayItemSummary): Listing | null {
     currency: s.price.currency,
     url: s.itemWebUrl,
     imageUrl: s.image?.imageUrl ?? null,
-    sellerUsername: s.seller?.username ?? null,
+    sellerUsername: null,
     sellerFeedbackScore: s.seller?.feedbackScore ?? null,
     sellerFeedbackPct: s.seller?.feedbackPercentage ? Number(s.seller.feedbackPercentage) : null,
     listedAt: s.itemCreationDate ? new Date(s.itemCreationDate) : null,
     aspects: {},
-    raw: s,
+    raw: scrubSeller(s),
   };
 }
 
@@ -30,7 +41,7 @@ export function mergeItemDetails(listing: Listing, item: EbayItem): Listing | nu
   if (!base) return null;
   const aspects: Record<string, string> = {};
   for (const a of item.localizedAspects ?? []) aspects[a.name] = a.value;
-  return { ...base, listedAt: base.listedAt ?? listing.listedAt, aspects, raw: item };
+  return { ...base, listedAt: base.listedAt ?? listing.listedAt, aspects, raw: scrubSeller(item) };
 }
 
 export function isOutOfStock(item: EbayItem): boolean {

@@ -117,3 +117,22 @@ describe('normalize', () => {
     expect(isOutOfStock({ ...ITEM, estimatedAvailabilities: [{ estimatedAvailabilityStatus: 'OUT_OF_STOCK' }] })).toBe(true);
   });
 });
+
+describe('normalize: no eBay user data persisted', () => {
+  const withSeller = { ...SUMMARY, seller: { username: 'someseller', feedbackScore: 500, feedbackPercentage: '99.5' } };
+
+  it('drops the seller username from the listing and its raw payload, keeps feedback stats', () => {
+    const l = summaryToListing(withSeller)!;
+    expect(l.sellerUsername).toBeNull();
+    expect(l.sellerFeedbackScore).toBe(500);
+    expect(l.sellerFeedbackPct).toBe(99.5);
+    expect(JSON.stringify(l.raw)).not.toContain('someseller');
+  });
+
+  it('drops the seller username from getItem details too', () => {
+    const base = summaryToListing(withSeller)!;
+    const merged = mergeItemDetails(base, { ...ITEM, seller: { username: 'someseller', feedbackScore: 500 } })!;
+    expect(merged.sellerUsername).toBeNull();
+    expect(JSON.stringify(merged.raw)).not.toContain('someseller');
+  });
+});
