@@ -72,15 +72,27 @@ export async function findCandidatesInSet(db: Db, setId: string, number: string)
     }));
 }
 
-/** Promo codes resolve to one promo set; same search as findCandidatesInSet. */
-export const findPromoCandidates = findCandidatesInSet;
+export const SET_CACHE_TTL_MS = 10 * 60_000;
+const setCache = new WeakMap<Db, { at: number; sets: SetRef[] }>();
 
-/** Every English set in the catalog (id + name), for resolving a set named in a listing title. */
-export async function listSets(db: Db): Promise<SetRef[]> {
+/** Drops the cached set list for this db. syncCatalog calls it after writing. */
+export function invalidateSetCache(db: Db): void {
+  setCache.delete(db);
+}
+
+/**
+ * Every English set in the catalog (id + name), for resolving a set named in a listing title. Memoized per db handle
+ * for SET_CACHE_TTL_MS; an in-process catalog sync invalidates it, the TTL covers a sync run by another process.
+ */
+export async function listSets(db: Db, now: () => number = Date.now): Promise<SetRef[]> {
+  const hit = setCache.get(db);
+  if (hit && now() - hit.at < SET_CACHE_TTL_MS) return hit.sets;
   const { rows } = await db.query<{ id: string; name: string }>(
     `select set_id as id, min(set_name) as name from cards where language = 'en' group by set_id order by set_id`,
   );
-  return rows.map((r) => ({ id: r.id, name: r.name }));
+  const sets = rows.map((r) => ({ id: r.id, name: r.name }));
+  setCache.set(db, { at: now(), sets });
+  return sets;
 }
 
 export async function getCard(db: Db, id: string): Promise<CardRow | null> {

@@ -224,7 +224,14 @@ describe('parseTitle refusals found by the live-catalog probe', () => {
     'PSA 10 Charizard ex 199/165 Autographed by artist',
     'PSA 9 Pikachu 25/165 Signed',
     'PSA Auto 9 Pikachu 25/165',
-  ])('flags an autographed slab as a variant: %s', (title) => {
+    '1999-2000 POKEMON GAME #4 CHARIZARD-HOLO 4TH PRINT UK PSA 10',
+    '1999 POKEMON GAME #4 CHARIZARD-HOLO 1999-2000 UK PRINT PSA 9',
+    '1999 POKEMON GAME #58 PIKACHU RED CHEEKS PSA 9',
+    '1999 POKEMON GAME #58 PIKACHU YELLOW CHEEKS E3 PSA 9',
+    'Pikachu E3 Promo PSA 9',
+    'Charizard 4/102 Thin Stamp PSA 9',
+    'Charizard 4/102 Thick Stamp PSA 9',
+  ])('flags autographs and print variants as a variant: %s', (title) => {
     expect(parseTitle(title).flags).toContain('variant');
   });
 });

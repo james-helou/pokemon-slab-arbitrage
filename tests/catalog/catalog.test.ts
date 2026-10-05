@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { findCandidates, findCandidatesInSet, findPromoCandidates, getCard, listSets } from '../../src/catalog/catalog-repo.js';
+import { findCandidates, findCandidatesInSet, getCard, listSets, SET_CACHE_TTL_MS } from '../../src/catalog/catalog-repo.js';
 import { skippedTooMany, syncCatalog } from '../../src/catalog/sync.js';
 import { matchListing } from '../../src/matcher/matcher.js';
 import { silentLog } from '../../src/log.js';
@@ -146,11 +146,11 @@ describe('catalog', () => {
       { id: 'xyp-XY95', name: 'Pikachu', number: 'XY95', setId: 'xyp', setName: 'XY Black Star Promos', setPrintedTotal: 211 },
       { id: 'svp-085', name: 'Pikachu with Grey Felt Hat', number: '85', setId: 'svp', setName: 'SVP Black Star Promos', setPrintedTotal: 225 },
     ]);
-    expect((await findPromoCandidates(db, 'swshp', 'SWSH20')).map((c) => c.id)).toEqual(['swshp-SWSH020']);
-    expect((await findPromoCandidates(db, 'swshp', 'SWSH020')).map((c) => c.id)).toEqual(['swshp-SWSH020']);
-    expect((await findPromoCandidates(db, 'xyp', 'XY095')).map((c) => c.id)).toEqual(['xyp-XY95']);
-    expect((await findPromoCandidates(db, 'svp', '85')).map((c) => c.id)).toEqual(['svp-085']);
-    expect(await findPromoCandidates(db, 'smp', 'SM20')).toEqual([]);
+    expect((await findCandidatesInSet(db, 'swshp', 'SWSH20')).map((c) => c.id)).toEqual(['swshp-SWSH020']);
+    expect((await findCandidatesInSet(db, 'swshp', 'SWSH020')).map((c) => c.id)).toEqual(['swshp-SWSH020']);
+    expect((await findCandidatesInSet(db, 'xyp', 'XY095')).map((c) => c.id)).toEqual(['xyp-XY95']);
+    expect((await findCandidatesInSet(db, 'svp', '85')).map((c) => c.id)).toEqual(['svp-085']);
+    expect(await findCandidatesInSet(db, 'smp', 'SM20')).toEqual([]);
   });
 
   it('matches a real synced svp promo from title and aspect', async () => {
@@ -159,7 +159,7 @@ describe('catalog', () => {
     const f = (async (url: string) =>
       new Response(JSON.stringify(url.endsWith('/sets') ? [{ id: 'svp' }] : svp), { status: url.includes('/series/') ? 404 : 200 })) as unknown as typeof fetch;
     await syncCatalog(db, f, silentLog, { sleep: async () => {} });
-    const lookup = (n: string, t: string | null, promo?: string) => (promo ? findPromoCandidates(db, promo, n) : findCandidates(db, n, t));
+    const lookup = (n: string, t: string | null, promo?: string) => (promo ? findCandidatesInSet(db, promo, n) : findCandidates(db, n, t));
     const a = await matchListing({ title: 'PSA 10 Pikachu with Grey Felt Hat SVP 085', aspects: {} }, lookup);
     expect(a.match?.cardId).toBe('svp-085');
     const b = await matchListing({ title: 'Pikachu with Grey Felt Hat PSA 10', aspects: { 'Card Number': 'SVP085' } }, lookup);
@@ -204,5 +204,28 @@ describe('catalog set lookups', () => {
       () => listSets(db),
     );
     expect(r.match).toMatchObject({ cardId: 'swsh7-095', confidence: 0.855 });
+  });
+});
+
+describe('listSets cache', () => {
+  it('memoizes per db and is refreshed by a catalog sync', async () => {
+    const db = await createTestDb();
+    await seedCards(db, [{ id: 'swsh7-95', name: 'Umbreon VMAX', number: '95', setId: 'swsh7', setName: 'Evolving Skies', setPrintedTotal: 203 }]);
+    expect((await listSets(db)).map((s) => s.id)).toEqual(['swsh7']);
+    await seedCards(db, [{ id: 'swsh4-1', name: 'X', number: '1', setId: 'swsh4', setName: 'Vivid Voltage', setPrintedTotal: 185 }]);
+    expect((await listSets(db)).map((s) => s.id)).toEqual(['swsh7']);
+    await syncCatalog(db, fakeFetch(), silentLog, { sleep: async () => {}, maxStaleRatio: 1 });
+    // The sync replaced the catalog (stale rows removed), so the cached list must be dropped.
+    expect((await listSets(db)).map((s) => s.id)).toEqual(['a', 'b', 'tg']);
+  });
+
+  it('expires after the TTL', async () => {
+    const db = await createTestDb();
+    let now = 0;
+    await seedCards(db, [{ id: 'swsh7-95', name: 'Umbreon VMAX', number: '95', setId: 'swsh7', setName: 'Evolving Skies', setPrintedTotal: 203 }]);
+    expect((await listSets(db, () => now)).length).toBe(1);
+    await seedCards(db, [{ id: 'swsh4-1', name: 'X', number: '1', setId: 'swsh4', setName: 'Vivid Voltage', setPrintedTotal: 185 }]);
+    now = SET_CACHE_TTL_MS + 1;
+    expect((await listSets(db, () => now)).length).toBe(2);
   });
 });

@@ -39,7 +39,7 @@ const NON_ENGLISH_RE =
  * "LV. X", "Mewtwo X 160/162" (a number followed by "/" is the card number).
  */
 const LOT_RE = /\b(lot|bundle|pair)\b|(?<!\bLV\.?\s?)\bx\s?\d+\b(?!\s*\/)|\b\d+\s?x\b/i;
-const VARIANT_RE = /\b(1st\s*ed(ition)?|first\s*edition|shadowless|rev(erse|\.)?\s*(holo|foil)|pre-?release|first\s*ed|w\s*stamp|jumbo|celebrations|classic\s*collection|staff|stamped|auto|autograph(ed)?|signed)\b/i;
+const VARIANT_RE = /\b(1st\s*ed(ition)?|first\s*edition|shadowless|rev(erse|\.)?\s*(holo|foil)|pre-?release|first\s*ed|w\s*stamp|jumbo|celebrations|classic\s*collection|staff|stamped|auto|autograph(ed)?|signed|4th\s*print|uk|(red|yellow)\s*cheeks|e3|(thin|thick)\s*stamp)\b/i;
 const RAW_CANDIDATE_RE = /\b(candidate|ready|equivalent|potential)\b/i;
 const ANY_GRADER_RE = new RegExp(GRADER_WORD, 'gi');
 const NOT_AUTHENTIC_RE = /\b(proxy|custom|replica|orica|fan\s*art)\b/i;

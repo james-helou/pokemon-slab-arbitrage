@@ -1,6 +1,6 @@
 import type { Db } from '../db/db.js';
 import type { Log } from '../log.js';
-import { upsertCards } from './catalog-repo.js';
+import { invalidateSetCache, upsertCards } from './catalog-repo.js';
 import { fetchAllCards, type ClientOptions } from './tcgdex-client.js';
 
 const BATCH = 1000;
@@ -68,6 +68,7 @@ export async function syncCatalog(db: Db, fetchFn: typeof fetch, log: Log, opts:
   for (let i = 0; i < cards.length; i += BATCH) await upsertCards(db, cards.slice(i, i + BATCH));
   if (skippedSets.length > 0) log('warn', 'catalog sync skipped sets', { skippedSets });
   const removed = skippedSets.length === 0 && cards.length > 0 ? await removeStale(db, cards.map((c) => c.id), log, opts.maxStaleRatio ?? MAX_STALE_RATIO) : 0;
+  invalidateSetCache(db);
   log('info', 'catalog synced', { cards: cards.length, removed });
   return { cards: cards.length, skippedSets, removed };
 }

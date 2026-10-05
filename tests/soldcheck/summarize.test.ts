@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findCandidates, findPromoCandidates } from '../../src/catalog/catalog-repo.js';
+import { findCandidates, findCandidatesInSet } from '../../src/catalog/catalog-repo.js';
 import { matchListing, type CandidateLookup } from '../../src/matcher/matcher.js';
 import { DEFAULT_SETTINGS } from '../../src/settings/settings.js';
 import { parseSoldResults, type ParsedSale } from '../../src/soldcheck/parse.js';
@@ -16,7 +16,7 @@ const PIKACHU = { ...CHARIZARD_151, id: 'sv03.5-025', name: 'Pikachu', number: '
 async function lookup(): Promise<CandidateLookup> {
   const db = await createTestDb();
   await seedCards(db, [CHARIZARD_151, PIKACHU]);
-  return (n, t, promo) => (promo ? findPromoCandidates(db, promo, n) : findCandidates(db, n, t));
+  return (n, t, promo) => (promo ? findCandidatesInSet(db, promo, n) : findCandidates(db, n, t));
 }
 
 const sale = (over: Partial<ParsedSale> = {}): ParsedSale => ({

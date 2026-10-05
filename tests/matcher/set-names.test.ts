@@ -29,7 +29,6 @@ describe('resolveTitleSet', () => {
     ['2020 POKEMON SWSH BLACK STAR PROMO #050 PIKACHU PSA 10', 'swshp'],
     ['1999 POKEMON GAME #49 DROWZEE PSA 8', 'base1'],
     ['2023 POKEMON MEW EN-151 ULTRA RARE #197 GIOVANNI\'S CHARISMA PSA 10', 'sv03.5'],
-    ['2011 Pokemon Black & White Zekrom #114 Gray Background Full Art Tag 7 NM', 'bw1'],
     ['2006 POKEMON EX HOLON PHANTOMS #8 GYARADOS-HOLO PSA 6', 'ex13'],
     ['2004 POKEMON EX DRAGON FRONTIERS #100 CHARIZARD PSA 9', 'ex15'],
     ['2016 POKEMON XY EVOLUTIONS #11 CHARIZARD PSA 10', 'xy12'],
@@ -42,17 +41,59 @@ describe('resolveTitleSet', () => {
     ['2004 POKEMON EX TEAM ROCKET RETURNS #4 DARK DRAGONITE PSA 9', 'ex7'],
     ['2002 POKEMON EXPEDITION #6 CHARIZARD-HOLO PSA 8', 'ecard1'],
     ['2009 POKEMON PLATINUM RISING RIVALS #1 ARCEUS PSA 9', 'pl2'],
-    ['2010 POKEMON HEARTGOLD & SOULSILVER #1 ARCANINE PSA 9', 'hgss1'],
     ['2010 POKEMON HS UNLEASHED #1 ENTEI & RAIKOU LEGEND PSA 9', 'hgss2'],
     ['2025 POKEMON MEGA EVOLUTION PHANTASMAL FLAMES #125 MEGA CHARIZARD X EX PSA 10', 'me02'],
-    ['2025 POKEMON MEG EN-MEGA EVOLUTION #179 MEGA LUCARIO EX PSA 10', 'me01'],
   ])('%s -> %s', (title, id) => {
     expect(resolveTitleSet(title, SETS)).toBe(id);
   });
 
-  it('uses an era name (Sword & Shield) only when no other set is named', () => {
-    expect(resolveTitleSet('2020 POKEMON SWORD & SHIELD #25 PIKACHU PSA 10', SETS)).toBe('swsh1');
+  it.each([
+    '2020 POKEMON SWORD & SHIELD #25 PIKACHU PSA 10',
+    '2011 Pokemon Black & White Zekrom #114 Gray Background Full Art Tag 7 NM',
+    '2010 POKEMON HEARTGOLD & SOULSILVER #1 ARCANINE PSA 9',
+    '2025 POKEMON MEG EN-MEGA EVOLUTION #179 MEGA LUCARIO EX PSA 10',
+    'Pinsir GX Sun & Moon #6 PSA 10',
+  ])('never resolves an era name on its own: %s', (title) => {
+    expect(resolveTitleSet(title, SETS)).toBeNull();
+  });
+
+  it('uses an era name only as a prefix', () => {
     expect(resolveTitleSet('Evolving Skies Umbreon VMAX #215 Sword & Shield PSA 10', SETS)).toBe('swsh7');
+  });
+
+  it.each([
+    ['Charizard #4 Base Set II PSA 9', 'base4'],
+    ['Charizard Base Set 2 #4 PSA 9', 'base4'],
+    ['1999 Pokemon Game Fossil Raichu #14 Holo PSA 9', 'ambiguous'],
+    ['Blastoise #2 Base 2 Pokemon Game PSA 9', 'ambiguous'],
+    ['Pitch Black Charizard #4 Base Set PSA 9', 'ambiguous'],
+    ["2025 POKEMON DRI EN-DESTINED RIVALS #231 TEAM ROCKET'S MEWTWO EX PSA 10", 'sv10'],
+  ])('aliases and canonical names never outvote each other: %s -> %s', (title, want) => {
+    const sets = [...SETS, { id: 'base3', name: 'Fossil' }, { id: 'me05', name: 'Pitch Black' }, { id: 'sv10', name: 'Destined Rivals' }];
+    expect(resolveTitleSet(title, sets)).toBe(want);
+  });
+
+  it.each([
+    ['2023 POKEMON MEW EN-151 #6 CHARIZARD EX PSA 10', 'sv03.5'],
+    ['Charizard ex 151 English #199 PSA 10', 'sv03.5'],
+    ['Pikachu #25 151 PSA 10', null],
+    ['Charizard #4 PSA 9 1999 151 Original', null],
+  ])('needs an English marker for 151: %s', (title, want) => {
+    expect(resolveTitleSet(title, SETS)).toBe(want);
+  });
+
+  it.each([
+    "2021 POKEMON SWORD & SHIELD MCDONALD'S EVOLVING SKIES #25 PIKACHU PSA 10",
+    '2021 POKEMON EVOLVING SKIES PROMO #25 PIKACHU PSA 10',
+    '2017 Pokemon Sun & Moon Trainer Kit Team Rocket #1 PSA 10',
+    '2021 POKEMON EVOLVING SKIES GALLERY #25 PIKACHU PSA 10',
+  ])('fails closed when a product word is outside the resolved set: %s', (title) => {
+    expect(resolveTitleSet(title, [...SETS, { id: 'base5', name: 'Team Rocket' }])).toBeNull();
+  });
+
+  it('keeps a product word that is part of the resolved name', () => {
+    expect(resolveTitleSet('2019 POKEMON SUN & MOON HIDDEN FATES SHINY VAULT #60 CHARIZARD PSA 10', SETS)).toBe('sma');
+    expect(resolveTitleSet('2025 POKEMON SVP EN-SV BLACK STAR PROMO #205 X PSA 10', SETS)).toBe('svp');
   });
 
   it('ignores the #N itself, so #151 is not the 151 set', () => {

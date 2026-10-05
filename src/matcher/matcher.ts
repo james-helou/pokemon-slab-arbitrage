@@ -1,6 +1,6 @@
 import type { CardCandidate } from '../catalog/catalog-repo.js';
 import type { Grader, Match } from '../domain/types.js';
-import { resolveTitleSet, type SetRef } from './set-names.js';
+import { resolveTitleSetHit, setTokens, type SetHit, type SetRef } from './set-names.js';
 import { normalizeNumber, parsePromos, parseTitle } from './title-parse.js';
 
 export const MATCHER_VERSION = 'v1.2.0';
@@ -40,7 +40,7 @@ function parseGrade(v: string | undefined): number | null {
 function tokens(s: string): string[] {
   return s
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
@@ -52,6 +52,30 @@ function nameInTitle(name: string, title: string): boolean {
   return tokens(name).every((x) => t.has(x));
 }
 
+/** Modifiers that, right before a name, make it a different card ("Dark Charizard", "Blaine's Charizard", "M Houndoom"). */
+const BEFORE_MODS = new Set(['dark', 'light', 'shining', 'radiant', 'mega', 'm', 'alolan', 'galarian', 'hisuian', 'paldean', 's']);
+/** Modifiers that, right after a name, make it a different card ("Rillaboom V", "Greninja BREAK", "Torterra LV.X"). */
+const AFTER_MODS = new Set(['ex', 'gx', 'v', 'vmax', 'vstar', 'union', 'break', 'lv', 'lvx', 'x', 'y', 'prime', 'legend', 'star', 'delta']);
+
+/**
+ * Strict name check for the PSA label path, where nothing but the set name pins the card: the card name must appear
+ * as a contiguous run, with no mechanic/owner modifier the name lacks directly before or after it. "Gold Star" reads
+ * as TCGdex's "Star" (ex13-104 "Pikachu Star"). TCGdex names LV.X cards without "LV.X", so those never match here.
+ */
+function labelNameInTitle(name: string, title: string): boolean {
+  const t = tokens(title.replace(/#\s?\d+/g, ' ').replace(/\bgold\s+star\b/gi, 'star'));
+  const n = tokens(name);
+  if (n.length === 0) return false;
+  for (let i = 0; i + n.length <= t.length; i++) {
+    if (!n.every((x, j) => t[i + j] === x)) continue;
+    const before = t[i - 1];
+    const after = t[i + n.length];
+    if ((before && BEFORE_MODS.has(before)) || (after && AFTER_MODS.has(after))) continue;
+    return true;
+  }
+  return false;
+}
+
 const PROMO_WORD = /\bpromo|black\s*star/i;
 const promoKey = (p: { promoSet: string; number: string }) => `${p.promoSet}:${Number.parseInt(p.number.replace(/\D/g, ''), 10)}`;
 
@@ -59,7 +83,9 @@ const promoKey = (p: { promoSet: string; number: string }) => `${p.promoSet}:${N
  * Confidence: name + number agree with exactly one candidate = 0.95, x0.9 when the grade is only in the title, so a
  * title-only match tops out at 0.855 (just over the 0.85 alert floor). The PSA label path (set named in title + "#N")
  * uses the same numbers: it reaches 0.95/0.855 only when set, number and card name all agree; a name mismatch is
- * 0.6. A bare Card Number aspect with no total and no set stays capped at 0.8.
+ * 0.6. A bare Card Number aspect with no total and no set stays capped at 0.8. The label path also uses a strict name
+ * check (labelNameInTitle), refuses a set whose name is the card's name ("Deoxys"), and for an alias-resolved set
+ * ("POKEMON GAME") refuses when any other set has a card with that number whose name is in the title.
  */
 export async function matchListing(
   input: { title: string; aspects: Record<string, string> },
@@ -91,21 +117,27 @@ export async function matchListing(
     return { match: null, reasons: ['number_conflict'] };
   }
   let labelSetTotalCheck: number | null = null;
+  let labelHit: SetHit | null = null;
   const reasons: string[] = [];
   if (!number && aspectPromo) {
     number = aspectPromo.number;
     promoSet = aspectPromo.promoSet;
   } else if (!number && p.hashNumber && listSets) {
-    const set = resolveTitleSet(input.title, await listSets());
-    if (set === 'ambiguous') return { match: null, reasons: ['ambiguous_set'] };
-    if (set) {
+    const allSets = await listSets();
+    const hit = resolveTitleSetHit(input.title, allSets);
+    if (hit === 'ambiguous') return { match: null, reasons: ['ambiguous_set'] };
+    if (hit) {
+      const aspectSet = input.aspects['Set'];
+      const fromAspect = aspectSet ? resolveTitleSetHit(aspectSet, allSets) : null;
+      if (fromAspect && fromAspect !== 'ambiguous' && fromAspect.id !== hit.id) return { match: null, reasons: ['set_conflict'] };
       if (aspectNumber) {
         const [an, at] = aspectNumber.split('/').map((x) => x.trim().replace(/^#/, ''));
         if (!an || normalizeNumber(an) !== p.hashNumber) return { match: null, reasons: ['number_conflict'] };
         if (at && /^\d+$/.test(at)) labelSetTotalCheck = Number(at);
       }
       number = p.hashNumber;
-      promoSet = set;
+      promoSet = hit.id;
+      labelHit = hit;
       reasons.push('set_from_title');
     }
   }
@@ -117,8 +149,14 @@ export async function matchListing(
   }
   if (!number) return { match: null, reasons: ['number_unknown'] };
 
-  const cands = await lookup(number, total, promoSet ?? undefined);
-  const named = cands.filter((c) => nameInTitle(c.name, input.title));
+  let cands = await lookup(number, total, promoSet ?? undefined);
+  if (labelSetTotalCheck !== null) {
+    const want = labelSetTotalCheck;
+    const fit = cands.filter((c) => c.setPrintedTotal === want);
+    if (cands.length > 0 && fit.length === 0) return { match: null, reasons: ['number_conflict'] };
+    cands = fit;
+  }
+  const named = cands.filter((c) => (labelHit ? labelNameInTitle(c.name, input.title) : nameInTitle(c.name, input.title)));
   let card: CardCandidate;
   let confidence: number;
   if (named.length === 1) {
@@ -133,8 +171,13 @@ export async function matchListing(
   } else {
     return { match: null, reasons: [cands.length > 1 ? 'ambiguous_card' : 'card_not_found'] };
   }
-  if (labelSetTotalCheck !== null && card.setPrintedTotal !== labelSetTotalCheck) {
-    return { match: null, reasons: ['number_conflict'] };
+  if (labelHit && confidence > 0.6) {
+    const nameToks = new Set(setTokens(card.name));
+    if (labelHit.tokens.every((t) => nameToks.has(t))) return { match: null, reasons: ['set_is_card_name'] };
+    if (labelHit.alias) {
+      const elsewhere = (await lookup(number, null)).filter((c) => c.id !== card.id && nameInTitle(c.name, input.title));
+      if (elsewhere.length > 0) return { match: null, reasons: ['ambiguous_card'] };
+    }
   }
   if (numberWithoutTotal) {
     confidence = Math.min(confidence, 0.8);
