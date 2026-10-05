@@ -55,4 +55,32 @@ describe('settings', () => {
     expect(s.sweepIntervalMinutes).toBe(1);
     expect(s.auxGetItemDailyCap).toBe(0);
   });
+
+  it('has sold-check defaults and clamps them to their ranges', async () => {
+    expect(DEFAULT_SETTINGS).toMatchObject({
+      soldCheckDailyCap: 40, soldCheckMinSpacingSeconds: 30, soldCheckCacheHours: 12, soldCheckMinSales: 5,
+      soldCheckMaxGap: 0.2,
+    });
+    const db = await createTestDb();
+    await setSetting(db, 'soldCheckDailyCap', -1);
+    await setSetting(db, 'soldCheckMinSpacingSeconds', 1);
+    await setSetting(db, 'soldCheckCacheHours', 0);
+    await setSetting(db, 'soldCheckMinSales', 1);
+    await setSetting(db, 'soldCheckMaxGap', 0);
+    const low = await loadSettings(db);
+    expect(low).toMatchObject({
+      soldCheckDailyCap: 0, soldCheckMinSpacingSeconds: 10, soldCheckCacheHours: 1, soldCheckMinSales: 3,
+      soldCheckMaxGap: 0.05,
+    });
+    await setSetting(db, 'soldCheckDailyCap', 5000);
+    await setSetting(db, 'soldCheckMinSpacingSeconds', 9999);
+    await setSetting(db, 'soldCheckCacheHours', 1000);
+    await setSetting(db, 'soldCheckMinSales', 100);
+    await setSetting(db, 'soldCheckMaxGap', 5);
+    const high = await loadSettings(db);
+    expect(high).toMatchObject({
+      soldCheckDailyCap: 200, soldCheckMinSpacingSeconds: 600, soldCheckCacheHours: 72, soldCheckMinSales: 30,
+      soldCheckMaxGap: 1,
+    });
+  });
 });

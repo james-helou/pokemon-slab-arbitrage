@@ -2,6 +2,7 @@ import type { Db } from '../db/db.js';
 import { log as defaultLog, type Log } from '../log.js';
 import type { Grader, Valuation } from '../domain/types.js';
 import type { ChannelNet } from '../scoring/scorer.js';
+import type { SoldCheckSnapshot } from '../soldcheck/sold-check.js';
 
 export const MAX_DELIVERY_ATTEMPTS = 5;
 const CLAIM_LEASE_SECS = 300;
@@ -48,6 +49,8 @@ export interface NewRecommendation {
   scorerVersion: string;
   matcherVersion: string;
   oracleVersion: string;
+  /** Present only when the sold check ran (SOLD_CHECK=on); stored in recommendations.sold_check. */
+  soldCheck?: SoldCheckSnapshot;
 }
 
 export interface StoredRecommendation extends NewRecommendation {
@@ -79,6 +82,7 @@ function rowToRecommendation(r: Record<string, unknown>): StoredRecommendation {
     scorerVersion: String(r.scorer_version),
     matcherVersion: String(r.matcher_version),
     oracleVersion: String(r.oracle_version),
+    ...(r.sold_check ? { soldCheck: r.sold_check as SoldCheckSnapshot } : {}),
     createdAt: new Date(r.created_at as string),
   };
 }
@@ -88,19 +92,26 @@ export async function insertRecommendation(db: Db, r: NewRecommendation): Promis
   const { rows } = await db.query<{ id: number }>(
     `insert into recommendations (source, external_id, card_id, grader, grade, cert, listing_snapshot, card_snapshot,
        valuation_snapshot, channel_nets, best_channel, buy_total, best_net, roi, confidence, rank, red_flags, routed_to,
-       scorer_version, matcher_version, oracle_version)
+       scorer_version, matcher_version, oracle_version, sold_check)
      values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11, $12, $13, $14, $15, $16,
-       $17::jsonb, $18, $19, $20, $21)
+       $17::jsonb, $18, $19, $20, $21, $22::jsonb)
      on conflict (source, external_id) do nothing
      returning id`,
     [
       r.source, r.externalId, r.cardId, r.grader, r.grade, r.cert, JSON.stringify(r.listingSnapshot),
       JSON.stringify(r.cardSnapshot), JSON.stringify(r.valuationSnapshot), JSON.stringify(r.channelNets),
       r.bestChannel, r.buyTotal, r.bestNet, r.roi, r.confidence, r.rank, JSON.stringify(r.redFlags), r.routedTo,
-      r.scorerVersion, r.matcherVersion, r.oracleVersion,
+      r.scorerVersion, r.matcherVersion, r.oracleVersion, r.soldCheck ? JSON.stringify(r.soldCheck) : null,
     ],
   );
   return rows[0] ? Number(rows[0].id) : null;
+}
+
+export async function recommendationExists(db: Db, source: 'ebay', externalId: string): Promise<boolean> {
+  const { rows } = await db.query('select 1 from recommendations where source = $1 and external_id = $2 limit 1', [
+    source, externalId,
+  ]);
+  return rows.length > 0;
 }
 
 export async function getRecommendation(db: Db, id: number): Promise<StoredRecommendation | null> {

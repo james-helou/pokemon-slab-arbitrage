@@ -3,13 +3,14 @@ import { findCandidates, findPromoCandidates, getCard } from '../catalog/catalog
 import type { Channel } from '../channels/channels.js';
 import type { Db } from '../db/db.js';
 import type { Listing, Match, Valuation, ValuationKey } from '../domain/types.js';
-import { insertDelivery, insertRecommendation } from '../ledger/ledger-repo.js';
+import { insertDelivery, insertRecommendation, recommendationExists } from '../ledger/ledger-repo.js';
 import { insertMatch, markGone, upsertListing } from '../listings/listings-repo.js';
 import type { Log } from '../log.js';
 import { matchListing, type CandidateLookup } from '../matcher/matcher.js';
 import { basicRedFlags } from '../risk/basic-flags.js';
 import { score } from '../scoring/scorer.js';
 import type { Settings } from '../settings/settings.js';
+import { soldCheckVerdict, type SoldCheck, type SoldCheckSnapshot } from '../soldcheck/sold-check.js';
 import type { EbayClient } from '../sources/ebay/ebay-client.js';
 import { isOutOfStock, mergeItemDetails } from '../sources/ebay/normalize.js';
 
@@ -19,6 +20,8 @@ export interface EvaluateDeps {
   valuate: (key: ValuationKey, settings: Settings) => Promise<Valuation | null>;
   now: () => Date;
   log: Log;
+  /** SOLD_CHECK=on only. Absent: behaviour is exactly as before. Present: may demote an alert, never promote one. */
+  soldCheck?: SoldCheck;
 }
 
 export type EvaluateStatus =
@@ -105,7 +108,16 @@ export async function evaluateListing(
 
   const card = await getCard(db, key.cardId);
   if (!card) return { status: 'no_match', reasons: ['card_missing'] };
-  const routedTo = final.decision === 'alert' ? 'alerts' : 'over_budget';
+  let routedTo: 'alerts' | 'over_budget' = final.decision === 'alert' ? 'alerts' : 'over_budget';
+  const flagCodes = redFlags.map((f) => f.code);
+  let soldCheck: SoldCheckSnapshot | undefined;
+  if (deps.soldCheck && !(await recommendationExists(db, 'ebay', enriched.externalId))) {
+    soldCheck = await runSoldCheck(deps.soldCheck, deps.log, key, card, settings, valuation.value);
+    if (soldCheck.verdict === 'disagrees') {
+      flagCodes.push('sold_check_disagrees');
+      routedTo = 'over_budget';
+    }
+  }
   const id = await insertRecommendation(db, {
     source: 'ebay',
     externalId: enriched.externalId,
@@ -127,13 +139,31 @@ export async function evaluateListing(
     roi: final.roi,
     confidence: final.confidence,
     rank: final.rank,
-    redFlags: redFlags.map((f) => f.code),
+    redFlags: flagCodes,
     routedTo,
     scorerVersion: final.scorerVersion,
     matcherVersion: m.matcherVersion,
     oracleVersion: valuation.oracleVersion,
+    ...(soldCheck ? { soldCheck } : {}),
   });
   if (id === null) return { status: 'duplicate', reasons: [] };
   await insertDelivery(db, id, routedTo);
   return { status: 'recommended', reasons: [], recommendationId: id };
+}
+
+/** The runner never throws by contract; this guard keeps a broken dep from ever costing an alert. */
+async function runSoldCheck(
+  check: SoldCheck, log: Log, key: ValuationKey, card: { name: string; number: string; setName: string },
+  settings: Settings, value: number,
+): Promise<SoldCheckSnapshot> {
+  try {
+    const r = await check(key, { name: card.name, number: card.number, setName: card.setName }, settings);
+    return { ...r, verdict: soldCheckVerdict(r, value, settings) };
+  } catch (err) {
+    log('error', 'sold check threw', { cardId: key.cardId, message: err instanceof Error ? err.message : String(err) });
+    return {
+      status: 'error', saleCount: 0, median: null, low: null, high: null, newestSoldAt: null, fetchedAt: null,
+      fromCache: false, parserVersion: null, verdict: 'unavailable',
+    };
+  }
 }

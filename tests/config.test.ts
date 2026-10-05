@@ -63,4 +63,10 @@ describe('loadConfig', () => {
       expect(message).not.toContain('discord-s3cret-token');
     }
   });
+  it('defaults SOLD_CHECK to off and accepts only off|on', () => {
+    expect(loadConfig(ENV).SOLD_CHECK).toBe('off');
+    expect(loadConfig({ ...ENV, SOLD_CHECK: '' }).SOLD_CHECK).toBe('off');
+    expect(loadConfig({ ...ENV, SOLD_CHECK: 'on' }).SOLD_CHECK).toBe('on');
+    expect(() => loadConfig({ ...ENV, SOLD_CHECK: 'yes' })).toThrow(/SOLD_CHECK/);
+  });
 });

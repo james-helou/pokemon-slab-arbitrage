@@ -15,6 +15,7 @@ import type { EvaluateDeps } from './pipeline/evaluate.js';
 import { scanCycle } from './pipeline/scan-cycle.js';
 import { runWeeklyReportJob } from './reports/weekly-job.js';
 import { loadSettings } from './settings/settings.js';
+import { buildSoldCheckDep } from './soldcheck/sold-check-wiring.js';
 import { createBudget } from './sources/ebay/budget.js';
 import { createEbayClient } from './sources/ebay/ebay-client.js';
 
@@ -23,7 +24,7 @@ const WEEKLY_CHECK_MS = 3_600_000;
 async function main() {
   const cfg = loadConfig();
   const db = pgDb(cfg.DATABASE_URL, (err) => log('error', 'pg pool error', { message: err.message }));
-  // Applies every migrations/*.sql not yet recorded (001 ... 010) before anything else runs.
+  // Applies every migrations/*.sql not yet recorded (001 ... 011) before anything else runs.
   log('info', 'migrations', { applied: await migrate(db, 'migrations') });
 
   // The scan loop must never run against an empty catalog (every listing would be marked evaluated as no_match).
@@ -41,6 +42,8 @@ async function main() {
   // COMPS_SOURCE picks fixture (sample comps) or poketrace (aggregates + own DB comps, fixture excluded).
   const oracle = await buildOracleDeps(cfg, { db, now, log, fetch });
   const valuate: EvaluateDeps['valuate'] = (key, settings) => getValuation(oracle, key, settings);
+  // SOLD_CHECK=off (default) wires nothing; on adds the guarded eBay sold check for alert candidates only.
+  const soldCheck = buildSoldCheckDep(cfg, { db, now, log, fetch });
 
   const bot = await startBot({
     token: cfg.DISCORD_TOKEN, appId: cfg.DISCORD_APP_ID, guildId: cfg.DISCORD_GUILD_ID,
@@ -54,7 +57,7 @@ async function main() {
   const stopScan = every(
     async () => (await loadSettings(db)).scanIntervalSeconds * 1000,
     async () => {
-      const s = await scanCycle({ db, ebay, budget, valuate, now, log }, cycle++);
+      const s = await scanCycle({ db, ebay, budget, valuate, now, log, ...(soldCheck ? { soldCheck } : {}) }, cycle++);
       log('info', 'scan cycle', { ...s });
     },
     log,

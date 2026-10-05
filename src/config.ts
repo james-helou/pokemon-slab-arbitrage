@@ -21,6 +21,8 @@ const schema = z.object({
   /** fixture = sample comps (dev, SAMPLE COMPS banner); poketrace = PokeTrace aggregates + own DB comps. */
   COMPS_SOURCE: z.preprocess(blankToUndefined, z.enum(['fixture', 'poketrace']).default('fixture')),
   POKETRACE_API_KEY: z.string().optional().transform((v) => v || undefined),
+  /** off (default): no eBay sold-search fetches at all. on: guarded check on alert candidates only. */
+  SOLD_CHECK: z.preprocess(blankToUndefined, z.enum(['off', 'on']).default('off')),
 }).superRefine((c, ctx) => {
   if (c.COMPS_SOURCE === 'poketrace' && !c.POKETRACE_API_KEY) {
     ctx.addIssue({ code: 'custom', path: ['POKETRACE_API_KEY'], message: 'required when COMPS_SOURCE=poketrace' });

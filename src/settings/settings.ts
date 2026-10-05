@@ -31,6 +31,16 @@ export interface Settings {
   auxGetItemDailyCap: number;
   sweepIntervalMinutes: number;
   outcomeIntervalMinutes: number;
+  /** Sold check (SOLD_CHECK=on only): max eBay sold-search fetches per UTC day, any status. */
+  soldCheckDailyCap: number;
+  /** Minimum gap between two sold-search fetches; a closer request is skipped, never slept on. */
+  soldCheckMinSpacingSeconds: number;
+  /** An ok sold check for the same card+grader+grade is reused for this long. */
+  soldCheckCacheHours: number;
+  /** Kept sold sales needed before the check may disagree with the valuation. */
+  soldCheckMinSales: number;
+  /** Disagree (route to over_budget) when valuation > sold median x (1 + this). */
+  soldCheckMaxGap: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -55,6 +65,11 @@ export const DEFAULT_SETTINGS: Settings = {
   auxGetItemDailyCap: 300,
   sweepIntervalMinutes: 10,
   outcomeIntervalMinutes: 60,
+  soldCheckDailyCap: 40,
+  soldCheckMinSpacingSeconds: 30,
+  soldCheckCacheHours: 12,
+  soldCheckMinSales: 5,
+  soldCheckMaxGap: 0.2,
 };
 
 /** Lower bounds for DB-loaded values that would otherwise hammer eBay or Discord. */
@@ -66,6 +81,20 @@ const MINIMUMS: Partial<Record<keyof Settings, number>> = {
   auxGetItemDailyCap: 0,
   sweepIntervalMinutes: 1,
   outcomeIntervalMinutes: 5,
+  soldCheckDailyCap: 0,
+  soldCheckMinSpacingSeconds: 10,
+  soldCheckCacheHours: 1,
+  soldCheckMinSales: 3,
+  soldCheckMaxGap: 0.05,
+};
+
+/** Upper bounds for DB-loaded values that would otherwise make the sold check scrape harder or trust too little. */
+const MAXIMUMS: Partial<Record<keyof Settings, number>> = {
+  soldCheckDailyCap: 200,
+  soldCheckMinSpacingSeconds: 600,
+  soldCheckCacheHours: 72,
+  soldCheckMinSales: 30,
+  soldCheckMaxGap: 1,
 };
 
 export async function loadSettings(db: Db): Promise<Settings> {
@@ -77,7 +106,9 @@ export async function loadSettings(db: Db): Promise<Settings> {
     const dflt = DEFAULT_SETTINGS[key];
     let value = r.value;
     if (typeof dflt === 'number') {
-      value = typeof value === 'number' && Number.isFinite(value) ? Math.max(value, MINIMUMS[key] ?? -Infinity) : dflt;
+      value = typeof value === 'number' && Number.isFinite(value)
+        ? Math.min(Math.max(value, MINIMUMS[key] ?? -Infinity), MAXIMUMS[key] ?? Infinity)
+        : dflt;
     }
     (out as unknown as Record<string, unknown>)[key] = value;
   }

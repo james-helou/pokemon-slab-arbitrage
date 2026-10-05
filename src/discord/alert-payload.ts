@@ -1,5 +1,6 @@
 import { ButtonStyle, ComponentType, type APIEmbed } from 'discord.js';
 import type { StoredRecommendation } from '../ledger/ledger-repo.js';
+import type { SoldCheckRunStatus, SoldCheckSnapshot } from '../soldcheck/sold-check.js';
 import { buildCheckLinks } from './check-links.js';
 
 export interface ActionRow {
@@ -29,6 +30,25 @@ function safeEbayUrl(raw: string): string | null {
 
 const usd = (n: number) => `$${n.toFixed(2)}`;
 
+const UNAVAILABLE: Record<SoldCheckRunStatus, string> = {
+  ok: 'no median',
+  no_results: 'no matching sales',
+  blocked: 'blocked by eBay',
+  error: 'fetch error',
+  skipped_budget: 'daily cap reached',
+  skipped_rate: 'rate limited',
+  skipped_blocked: 'paused after an eBay block',
+};
+
+function soldCheckLine(s: SoldCheckSnapshot, value: number, createdAt: Date): string {
+  if (s.verdict === 'unavailable' || s.median === null) return `unavailable (${UNAVAILABLE[s.status] ?? s.status})`;
+  if (s.verdict === 'disagrees') return `disagrees: value ${usd(value)} vs sold median ${usd(s.median)} (${s.saleCount} sales)`;
+  const ref = s.fetchedAt ? new Date(s.fetchedAt) : createdAt;
+  const age = s.newestSoldAt ? `newest ${Math.max(0, Math.floor((ref.getTime() - new Date(s.newestSoldAt).getTime()) / 86_400_000))}d` : 'newest ?';
+  const note = s.verdict === 'insufficient' ? ', too few to judge' : '';
+  return `eBay sold median ${usd(s.median)} from ${s.saleCount} sales (${age}${note})`;
+}
+
 export function buildAlertPayload(r: StoredRecommendation): AlertPayload {
   const v = r.valuationSnapshot;
   const nets = r.channelNets
@@ -56,6 +76,7 @@ export function buildAlertPayload(r: StoredRecommendation): AlertPayload {
       name: 'Market value',
       value: `${usd(v.value)} (range ${usd(v.low)} to ${usd(v.high)}, ${v.compCount} comps, newest ${Math.round(v.newestCompAgeDays)}d)`,
     },
+    ...(r.soldCheck ? [{ name: 'Sold check', value: soldCheckLine(r.soldCheck, v.value, r.createdAt) }] : []),
     { name: 'Best net', value: `${usd(r.bestNet)} via ${r.bestChannel} · ROI ${Math.round(r.roi * 100)}%`, inline: true },
     { name: 'Confidence', value: `${Math.round(r.confidence * 100)}%`, inline: true },
     { name: 'Net by channel', value: nets || 'none' },

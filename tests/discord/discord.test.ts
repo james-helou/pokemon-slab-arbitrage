@@ -7,6 +7,7 @@ import { getRecommendation, hasDecision, insertRecommendation } from '../../src/
 import { loadSettings } from '../../src/settings/settings.js';
 import { createTestDb } from '../helpers/test-db.js';
 import { makeNewRecommendation, seedCards } from '../helpers/fixtures.js';
+import type { SoldCheckSnapshot } from '../../src/soldcheck/sold-check.js';
 
 async function setupRec() {
   const db = await createTestDb();
@@ -169,5 +170,46 @@ describe('handlers', () => {
     const status = await handleCommand(deps, 'status', {});
     expect(status).toContain('running');
     expect(status).toContain('42');
+  });
+});
+
+describe('buildAlertPayload sold check field', () => {
+  const snap = (over: Partial<SoldCheckSnapshot> = {}): SoldCheckSnapshot => ({
+    status: 'ok', saleCount: 6, median: 590, low: 570, high: 610, newestSoldAt: '2026-10-01T00:00:00.000Z',
+    fetchedAt: '2026-10-03T12:00:00.000Z', fromCache: false, parserVersion: 'v0-unverified', verdict: 'agrees', ...over,
+  });
+  const field = async (s?: SoldCheckSnapshot) => {
+    const { rec } = await setupRec();
+    const p = buildAlertPayload({ ...rec, ...(s ? { soldCheck: s } : {}) });
+    return (p.embeds[0]!.fields ?? []).find((f) => f.name === 'Sold check')?.value;
+  };
+
+  it('is absent when the check did not run', async () => {
+    expect(await field()).toBeUndefined();
+  });
+
+  it('shows the sold median, sale count and newest age when it agrees', async () => {
+    expect(await field(snap())).toBe('eBay sold median $590.00 from 6 sales (newest 2d)');
+  });
+
+  it('says too few to judge when insufficient', async () => {
+    expect(await field(snap({ saleCount: 3, verdict: 'insufficient' }))).toBe(
+      'eBay sold median $590.00 from 3 sales (newest 2d, too few to judge)',
+    );
+  });
+
+  it('shows value vs sold median when it disagrees', async () => {
+    expect(await field(snap({ median: 450, verdict: 'disagrees' }))).toBe(
+      'disagrees: value $600.00 vs sold median $450.00 (6 sales)',
+    );
+  });
+
+  it('shows unavailable with a reason otherwise', async () => {
+    const un = (status: SoldCheckSnapshot['status']) =>
+      field(snap({ status, saleCount: 0, median: null, newestSoldAt: null, verdict: 'unavailable' }));
+    expect(await un('blocked')).toBe('unavailable (blocked by eBay)');
+    expect(await un('skipped_budget')).toBe('unavailable (daily cap reached)');
+    expect(await un('error')).toBe('unavailable (fetch error)');
+    expect(await un('no_results')).toBe('unavailable (no matching sales)');
   });
 });

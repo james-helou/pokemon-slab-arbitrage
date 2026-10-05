@@ -87,3 +87,16 @@ export async function countSoldChecksSince(db: Db, since: Date): Promise<number>
   const { rows } = await db.query<{ n: unknown }>(`select count(*) as n from sold_checks where fetched_at >= $1`, [since]);
   return Number(rows[0]!.n);
 }
+
+/** True when any fetch was blocked at or after `since` (the persisted circuit breaker, survives restarts). */
+export async function blockedSince(db: Db, since: Date): Promise<boolean> {
+  const { rows } = await db.query(`select 1 from sold_checks where status = 'blocked' and fetched_at >= $1 limit 1`, [since]);
+  return rows.length > 0;
+}
+
+/** fetched_at of the newest row of any status and key, or null; the request-spacing guard. */
+export async function lastSoldCheckAt(db: Db): Promise<Date | null> {
+  const { rows } = await db.query<{ t: unknown }>(`select max(fetched_at) as t from sold_checks`);
+  const t = rows[0]?.t;
+  return t ? new Date(t as string) : null;
+}
