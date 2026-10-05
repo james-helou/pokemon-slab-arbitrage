@@ -25,7 +25,7 @@ const OUT_DIR = 'tmp';
  */
 export async function runProbe(query: string, deps: ProbeDeps): Promise<ProbeResult> {
   const q = query.trim();
-  if (!q) throw new Error('usage: npm run soldcheck:probe -- "<query>" (query is required)');
+  if (!q) throw new Error(USAGE);
   const url = ebaySoldSearchUrl(q);
   deps.print(`GET ${url}`);
   const { status, html } = await fetchSoldPage(deps.fetch, url);
@@ -43,4 +43,26 @@ export async function runProbe(query: string, deps: ProbeDeps): Promise<ProbeRes
     deps.print(`- $${s.price.toFixed(2)} | ${s.soldAt?.toISOString().slice(0, 10) ?? 'no date'} | ${s.title}${flags ? ` [${flags}]` : ''}`);
   }
   return { path, status, blocked, saleCount: sales.length };
+}
+
+const USAGE = 'usage: npm run soldcheck:probe -- "<query>" (query is required)';
+
+/** Exit code for a finished probe: 2 blocked, 0 on 2xx, 1 on any other status. */
+export function probeExitCode(r: Pick<ProbeResult, 'status' | 'blocked'>): number {
+  if (r.blocked) return 2;
+  return r.status >= 200 && r.status < 300 ? 0 : 1;
+}
+
+/** CLI wrapper: never throws, prints a one-line usage or error message instead of a stack trace. */
+export async function runProbeCli(query: string, deps: ProbeDeps): Promise<number> {
+  if (!query.trim()) {
+    deps.print(USAGE);
+    return 1;
+  }
+  try {
+    return probeExitCode(await runProbe(query, deps));
+  } catch (err) {
+    deps.print(`error: ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  }
 }

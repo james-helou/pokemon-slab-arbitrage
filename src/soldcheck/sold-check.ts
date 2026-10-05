@@ -92,6 +92,17 @@ const startOfUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUT
 export function createSoldCheck(deps: SoldCheckDeps): SoldCheck {
   const { db, log } = deps;
   const lookup: CandidateLookup = (n, t, promo) => (promo ? findPromoCandidates(db, promo, n) : findCandidates(db, n, t));
+  // In-process floor under the DB-derived guards, so a failed sold_checks insert cannot let the next candidate fetch.
+  let lastFetchAt: Date | null = null;
+  let fetchDay = '';
+  let fetchCount = 0;
+  const noteFetch = (at: Date) => {
+    const day = startOfUtcDay(at).toISOString();
+    if (day !== fetchDay) { fetchDay = day; fetchCount = 0; }
+    fetchCount += 1;
+    lastFetchAt = at;
+  };
+  const fetchesToday = (at: Date) => (startOfUtcDay(at).toISOString() === fetchDay ? fetchCount : 0);
 
   async function fetchAndRecord(key: SoldCheckKey, card: SoldCheckCard, settings: SoldCheckSettings, at: Date) {
     const link = buildCheckLinks({ ...card, grader: key.grader, grade: key.grade }).find((l) => l.label === 'eBay sold');
@@ -110,10 +121,12 @@ export function createSoldCheck(deps: SoldCheckDeps): SoldCheck {
     try {
       ({ status, html } = await fetchSoldPage(deps.fetch, link.url));
     } catch (err) {
+      noteFetch(at);
       log('warn', 'sold check fetch failed', { cardId: key.cardId, message: err instanceof Error ? err.message : String(err) });
       await record('error');
       return empty('error', at);
     }
+    noteFetch(at);
 
     if (detectBlocked(html, status)) {
       log('warn', 'sold check blocked; breaker open', { cardId: key.cardId, status, hours: BREAKER_HOURS });
@@ -149,8 +162,10 @@ export function createSoldCheck(deps: SoldCheckDeps): SoldCheck {
         };
       }
       if (await blockedSince(db, new Date(at.getTime() - BREAKER_HOURS * HOUR))) return empty('skipped_blocked');
-      if ((await countSoldChecksSince(db, startOfUtcDay(at))) >= settings.soldCheckDailyCap) return empty('skipped_budget');
-      const last = await lastSoldCheckAt(db);
+      const count = Math.max(await countSoldChecksSince(db, startOfUtcDay(at)), fetchesToday(at));
+      if (count >= settings.soldCheckDailyCap) return empty('skipped_budget');
+      const dbLast = await lastSoldCheckAt(db);
+      const last = [dbLast, lastFetchAt].reduce<Date | null>((a, b) => (b && (!a || b > a) ? b : a), null);
       if (last && at.getTime() - last.getTime() < settings.soldCheckMinSpacingSeconds * 1000) return empty('skipped_rate');
       return await fetchAndRecord(key, card, settings, at);
     } catch (err) {

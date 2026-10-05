@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { runProbe, type ProbeDeps } from '../../src/soldcheck/probe.js';
+import { runProbe, runProbeCli, type ProbeDeps } from '../../src/soldcheck/probe.js';
 import { soldHtml } from '../helpers/sold-html.js';
 
 const NOW = new Date('2026-10-04T12:34:56.789Z');
@@ -51,5 +51,37 @@ describe('runProbe', () => {
     const h = harness(() => new Response(''));
     await expect(runProbe('  ', h.deps)).rejects.toThrow(/query/);
     expect(h.urls).toHaveLength(0);
+  });
+
+  describe('runProbeCli exit codes', () => {
+    it('0 on a 2xx page', async () => {
+      const h = harness(() => new Response(soldHtml([{ price: 600, sold: 'Oct 2, 2026' }]), { status: 200 }));
+      expect(await runProbeCli('Charizard', h.deps)).toBe(0);
+    });
+
+    it('2 when blocked', async () => {
+      const h = harness(() => new Response('nope', { status: 403 }));
+      expect(await runProbeCli('Charizard', h.deps)).toBe(2);
+    });
+
+    it('1 on any other non-2xx status', async () => {
+      const h = harness(() => new Response('oops', { status: 500 }));
+      expect(await runProbeCli('Charizard', h.deps)).toBe(1);
+    });
+
+    it('1 with a one-line error (no stack) when the fetch throws', async () => {
+      const h = harness(() => { throw new Error('socket hang up'); });
+      expect(await runProbeCli('Charizard', h.deps)).toBe(1);
+      const last = h.out.at(-1)!;
+      expect(last).toBe('error: socket hang up');
+      expect(h.out.join('\n')).not.toMatch(/\n\s+at /);
+    });
+
+    it('1 with the usage line for an empty query, without fetching', async () => {
+      const h = harness(() => new Response(''));
+      expect(await runProbeCli('   ', h.deps)).toBe(1);
+      expect(h.urls).toHaveLength(0);
+      expect(h.out).toEqual(['usage: npm run soldcheck:probe -- "<query>" (query is required)']);
+    });
   });
 });

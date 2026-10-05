@@ -77,14 +77,12 @@ describe('evaluateListing with a sold check', () => {
     expect(rec!.soldCheck).toMatchObject({ verdict: 'insufficient' });
   });
 
-  it('a check far ABOVE the valuation never promotes an over_budget recommendation', async () => {
-    const { rec } = await run({ cash: 100, sold: () => result({ median: 5000 }) });
+  it('is not called for an over_budget candidate (it cannot be demoted, so it spends no budget)', async () => {
+    const { rec, calls, deliveries } = await run({ cash: 100, sold: () => result({ median: 5000 }) });
     expect(rec).toMatchObject({ routedTo: 'over_budget', redFlags: [] });
-  });
-
-  it('disagreement on an already over_budget recommendation keeps it there and flags it', async () => {
-    const { rec } = await run({ cash: 100, sold: () => result({ median: 300 }) });
-    expect(rec).toMatchObject({ routedTo: 'over_budget', redFlags: ['sold_check_disagrees'] });
+    expect(rec!.soldCheck).toBeUndefined();
+    expect(calls).toHaveLength(0);
+    expect(deliveries).toEqual([{ route: 'over_budget' }]);
   });
 
   for (const status of ['blocked', 'error', 'no_results', 'skipped_budget', 'skipped_rate', 'skipped_blocked'] as const) {

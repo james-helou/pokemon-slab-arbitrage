@@ -140,6 +140,45 @@ describe('createSoldCheck', () => {
     expect((await h.run(key, card, settings)).status).toBe('ok');
   });
 
+  it('a failed row write still spaces the next fetch (in-process floor)', async () => {
+    const h = await harness();
+    let failNext = true;
+    const flaky: Db = {
+      ...h.db,
+      query: (async (sql: string, params?: unknown[]) => {
+        if (failNext && /insert into sold_checks/i.test(sql)) { failNext = false; throw new Error('insert failed'); }
+        return h.db.query(sql, params);
+      }) as Db['query'],
+    };
+    const run = createSoldCheck({ ...h.deps, db: flaky });
+    expect((await run(key, card, settings)).status).toBe('error');
+    expect(h.calls).toHaveLength(1);
+    expect(await rows(h.db)).toHaveLength(0);
+    h.advance(10_000);
+    expect((await run(key, card, settings)).status).toBe('skipped_rate');
+    expect(h.calls).toHaveLength(1);
+    h.advance(settings.soldCheckMinSpacingSeconds * 1000);
+    expect((await run(key, card, settings)).status).toBe('ok');
+    expect(h.calls).toHaveLength(2);
+  });
+
+  it('a failed row write still counts toward the daily cap (in-process count)', async () => {
+    const h = await harness();
+    const failing: Db = {
+      ...h.db,
+      query: (async (sql: string, params?: unknown[]) => {
+        if (/insert into sold_checks/i.test(sql)) throw new Error('insert failed');
+        return h.db.query(sql, params);
+      }) as Db['query'],
+    };
+    const run = createSoldCheck({ ...h.deps, db: failing });
+    const capped = { ...settings, soldCheckDailyCap: 1 };
+    expect((await run(key, card, capped)).status).toBe('error');
+    h.advance(HOUR);
+    expect((await run(key, card, capped)).status).toBe('skipped_budget');
+    expect(h.calls).toHaveLength(1);
+  });
+
   it('a thrown fetch becomes an error row and never throws', async () => {
     const h = await harness({ respond: () => { throw new Error('socket hang up'); } });
     const r = await h.run(key, card, settings);

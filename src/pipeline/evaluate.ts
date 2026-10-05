@@ -111,7 +111,8 @@ export async function evaluateListing(
   let routedTo: 'alerts' | 'over_budget' = final.decision === 'alert' ? 'alerts' : 'over_budget';
   const flagCodes = redFlags.map((f) => f.code);
   let soldCheck: SoldCheckSnapshot | undefined;
-  if (deps.soldCheck && !(await recommendationExists(db, 'ebay', enriched.externalId))) {
+  // Alert candidates only: an over_budget one cannot be demoted, so checking it would just spend the daily cap.
+  if (deps.soldCheck && final.decision === 'alert' && !(await recommendationExists(db, 'ebay', enriched.externalId))) {
     soldCheck = await runSoldCheck(deps.soldCheck, deps.log, key, card, settings, valuation.value);
     if (soldCheck.verdict === 'disagrees') {
       flagCodes.push('sold_check_disagrees');
