@@ -1,3 +1,4 @@
+import { ButtonStyle } from 'discord.js';
 import { describe, expect, it } from 'vitest';
 import { addEntry, availableCash, recordPurchase } from '../../src/bankroll/bankroll-repo.js';
 import { PASS_REASONS, buildAlertPayload, buildPassReasonMenu } from '../../src/discord/alert-payload.js';
@@ -61,6 +62,20 @@ describe('buildAlertPayload', () => {
     const why = (e.fields ?? []).find((f) => f.name === 'Why')!;
     expect(why.value).toContain('6 comps');
     expect(why.value).toContain('37%');
+  });
+
+  it('adds a second row of https price-check link buttons', async () => {
+    const { rec } = await setupRec();
+    const p = buildAlertPayload(rec);
+    expect(p.components).toHaveLength(2);
+    const links = p.components[1]!.components as { style: number; label: string; url: string }[];
+    expect(links.map((b) => b.label)).toEqual(['eBay sold', 'PriceCharting']);
+    expect(links.length).toBeLessThanOrEqual(5);
+    for (const b of links) {
+      expect(b.style).toBe(ButtonStyle.Link);
+      expect(new URL(b.url).protocol).toBe('https:');
+    }
+    expect(new URL(links[0]!.url).searchParams.get('_nkw')).toBe('Charizard ex 199 PSA 10');
   });
 
   it('builds a pass reason menu', () => {

@@ -1,5 +1,6 @@
 import { ButtonStyle, ComponentType, type APIEmbed } from 'discord.js';
 import type { StoredRecommendation } from '../ledger/ledger-repo.js';
+import { buildCheckLinks } from './check-links.js';
 
 export interface ActionRow {
   type: ComponentType.ActionRow;
@@ -73,6 +74,8 @@ export function buildAlertPayload(r: StoredRecommendation): AlertPayload {
   if (url) embed.url = url;
   if (r.listingSnapshot.imageUrl) embed.image = { url: r.listingSnapshot.imageUrl };
 
+  const checkLinks = buildCheckLinks({ ...r.cardSnapshot, grader: r.grader, grade: r.grade }).slice(0, 5);
+
   return {
     content: v.compsSource.split('+').includes('fixture')
       ? '⚠️ SAMPLE COMPS, not real prices. Do not buy from this alert.'
@@ -88,6 +91,12 @@ export function buildAlertPayload(r: StoredRecommendation): AlertPayload {
           { type: ComponentType.Button, style: ButtonStyle.Secondary, label: 'Watch', custom_id: `watch:${r.id}` },
         ],
       },
+      ...(checkLinks.length > 0
+        ? [{
+            type: ComponentType.ActionRow as const,
+            components: checkLinks.map((l) => ({ type: ComponentType.Button, style: ButtonStyle.Link, label: l.label, url: l.url })),
+          }]
+        : []),
     ],
   };
 }
