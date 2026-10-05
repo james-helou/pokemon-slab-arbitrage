@@ -1,4 +1,4 @@
-import { matchListing, type CandidateLookup } from '../matcher/matcher.js';
+import { matchListing, type CandidateLookup, type SetLister } from '../matcher/matcher.js';
 import type { ParsedSale } from './parse.js';
 import type { SoldCheckKey } from './sold-checks-repo.js';
 
@@ -20,6 +20,8 @@ export interface SoldSummary {
 export interface SummarizeOpts {
   key: SoldCheckKey;
   lookup: CandidateLookup;
+  /** Catalog sets, so PSA label sold titles ("#N" + set name) can match. Optional: without it they never match. */
+  sets?: SetLister;
   minMatchConfidence: number;
   now: Date;
 }
@@ -47,14 +49,14 @@ const cents = (n: number) => Math.round(n * 100) / 100;
  * raising minMatchConfidence past 0.855 would silently drop every sale. A test pins this.
  */
 export async function summarizeSales(sales: ParsedSale[], opts: SummarizeOpts): Promise<SoldSummary> {
-  const { key, lookup, minMatchConfidence, now } = opts;
+  const { key, lookup, sets, minMatchConfidence, now } = opts;
   const oldest = now.getTime() - MAX_SALE_AGE_DAYS * DAY;
   const kept: (ParsedSale & { soldAt: Date })[] = [];
   for (const s of sales) {
     if (s.isLot || s.bestOfferAccepted || s.currency !== 'USD') continue;
     if (!s.soldAt || s.soldAt.getTime() < oldest || s.soldAt.getTime() > now.getTime() + DAY) continue;
     if (!(Number.isFinite(s.price) && s.price > 0)) continue;
-    const { match } = await matchListing({ title: s.title, aspects: {} }, lookup);
+    const { match } = await matchListing({ title: s.title, aspects: {} }, lookup, sets);
     if (!match) continue;
     if (match.cardId !== key.cardId || match.grader !== key.grader || match.grade !== key.grade) continue;
     if (match.confidence < minMatchConfidence || match.gradeLabel !== null) continue;

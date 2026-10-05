@@ -1,12 +1,12 @@
 import { availableCash } from '../bankroll/bankroll-repo.js';
-import { findCandidates, findPromoCandidates, getCard } from '../catalog/catalog-repo.js';
+import { findCandidates, findCandidatesInSet, getCard, listSets } from '../catalog/catalog-repo.js';
 import type { Channel } from '../channels/channels.js';
 import type { Db } from '../db/db.js';
 import type { Listing, Match, Valuation, ValuationKey } from '../domain/types.js';
 import { insertDelivery, insertRecommendation, recommendationExists } from '../ledger/ledger-repo.js';
 import { insertMatch, markGone, upsertListing } from '../listings/listings-repo.js';
 import type { Log } from '../log.js';
-import { matchListing, type CandidateLookup } from '../matcher/matcher.js';
+import { matchListing, type CandidateLookup, type SetLister } from '../matcher/matcher.js';
 import { basicRedFlags } from '../risk/basic-flags.js';
 import { score } from '../scoring/scorer.js';
 import type { Settings } from '../settings/settings.js';
@@ -52,9 +52,10 @@ export async function evaluateListing(
   channels: Channel[],
 ): Promise<EvaluateOutcome> {
   const { db } = deps;
-  const lookup: CandidateLookup = (n, t, promo) => (promo ? findPromoCandidates(db, promo, n) : findCandidates(db, n, t));
+  const lookup: CandidateLookup = (n, t, set) => (set ? findCandidatesInSet(db, set, n) : findCandidates(db, n, t));
+  const sets: SetLister = () => listSets(db);
 
-  const first = await matchListing({ title: listing.title, aspects: listing.aspects }, lookup);
+  const first = await matchListing({ title: listing.title, aspects: listing.aspects }, lookup, sets);
   await insertMatch(db, listing, first, 'title');
   if (!first.match) return { status: 'no_match', reasons: first.reasons };
   const gate1 = gate(first.match, settings);
@@ -85,7 +86,7 @@ export async function evaluateListing(
   if (!enriched) return { status: 'rejected', reasons: ['invalid_listing'] };
   await upsertListing(db, enriched, deps.now());
 
-  const second = await matchListing({ title: enriched.title, aspects: enriched.aspects }, lookup);
+  const second = await matchListing({ title: enriched.title, aspects: enriched.aspects }, lookup, sets);
   await insertMatch(db, enriched, second, 'enriched');
   if (!second.match) return { status: 'no_match', reasons: second.reasons };
   const m = second.match;

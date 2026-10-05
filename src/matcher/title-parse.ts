@@ -8,17 +8,40 @@ export interface TitleParse {
   total: string | null;
   /** TCGdex promo set id when the title carries a promo code (e.g. SWSH020) instead of an N/T number. */
   promoSet: string | null;
+  /**
+   * PSA label number ("#095"), normalized, when the title has neither N/T nor a promo code. It identifies a card only
+   * together with a set named in the title (see set-names.ts), so it is kept apart from `number`.
+   */
+  hashNumber: string | null;
   flags: string[];
 }
 
-const GRADER_RE =
-  /\b(PSA|CGC|BGS|BECKETT|SGC|TAG)\b[\s:-]*(?:GEM[\s-]*(?:MT|MINT)|MINT|NM[\s-]*MT|PRISTINE|BLACK[\s-]*LABEL)?[\s:-]*(10|9\.5|[1-9](?:\.5)?)(?![\d./])/i;
+/**
+ * A grader word: not glued to a preceding letter, and either a word boundary or a digit after it, so "PSA10" and
+ * "PSA-10" read like "PSA 10". "TAG TEAM" (a card mechanic) is not the TAG grader.
+ */
+const GRADER_WORD = String.raw`\b(PSA|CGC|BGS|BECKETT|SGC|TAG(?![\s-]*TEAM\b))(?=\b|\d)`;
+const GRADER_RE = new RegExp(
+  `${GRADER_WORD}[\\s:-]*(?:GEM[\\s-]*(?:MT|MINT)|MINT|NM[\\s-]*MT|PRISTINE|BLACK[\\s-]*LABEL)?[\\s:-]*(10|9\\.5|[1-9](?:\\.5)?)(?![\\d./])`,
+  'i',
+);
 const NUMBER_RE = /(?:^|[\s#(])([A-Z]{0,4}\d{1,4})\s*\/\s*([A-Z]{0,4}\d{1,4})(?!\d)/i;
-const NON_ENGLISH_RE = /\b(japanese|japan|jpn|korean|chinese|german|french|italian|spanish|portuguese|thai|indonesian)\b/i;
-const LOT_RE = /\b(lot|bundle)\b|\bx\s?\d+\b|\b\d+\s?x\b/i;
-const VARIANT_RE = /\b(1st\s*ed(ition)?|first\s*edition|shadowless|reverse\s*holo|pre-?release|first\s*ed|w\s*stamp|jumbo|celebrations|classic\s*collection|staff|stamped)\b/i;
+/** PSA label numbers: "#095", "#3". Digits only, so "#SM248" (a promo code) and "#TG05" are not read here. */
+const HASH_NUMBER_RE = /#\s?(\d{1,4})(?![\d/A-Z])/gi;
+/**
+ * Language words, plus Japanese set codes: a series prefix, digits, then a letter ("sv2a", "SM9a", "S6H", "M1L").
+ * English codes have no trailing letter ("SV10", "ME01", "SWSH12"; "SV3pt5" runs on past one letter).
+ */
+const NON_ENGLISH_RE =
+  /\b(japanese|japan|jpn|jp|korean|chinese|german|french|italian|spanish|portuguese|thai|indonesian)\b|\b(?:sv|sm|s|m)\d{1,2}[a-z]\b/i;
+/**
+ * "x2" / "2x" / "x 3" / "lot" / "bundle" / "pair". An X that ends a card name is not a count: "LV.X 122/130",
+ * "LV. X", "Mewtwo X 160/162" (a number followed by "/" is the card number).
+ */
+const LOT_RE = /\b(lot|bundle|pair)\b|(?<!\bLV\.?\s?)\bx\s?\d+\b(?!\s*\/)|\b\d+\s?x\b/i;
+const VARIANT_RE = /\b(1st\s*ed(ition)?|first\s*edition|shadowless|rev(erse|\.)?\s*(holo|foil)|pre-?release|first\s*ed|w\s*stamp|jumbo|celebrations|classic\s*collection|staff|stamped|auto|autograph(ed)?|signed)\b/i;
 const RAW_CANDIDATE_RE = /\b(candidate|ready|equivalent|potential)\b/i;
-const ANY_GRADER_RE = /\b(PSA|CGC|BGS|BECKETT|SGC|TAG)\b/gi;
+const ANY_GRADER_RE = new RegExp(GRADER_WORD, 'gi');
 const NOT_AUTHENTIC_RE = /\b(proxy|custom|replica|orica|fan\s*art)\b/i;
 
 const PROMO_SETS: Record<string, string> = { SVP: 'svp', SWSH: 'swshp', SM: 'smp', XY: 'xyp', BW: 'bwp' };
@@ -80,6 +103,13 @@ export function parseTitle(title: string): TitleParse {
   if (promos.length > 1) flags.push('number_conflict');
   const promo = promos.length === 1 ? promos[0]! : null;
 
+  let hashNumber: string | null = null;
+  if (!n && promos.length === 0) {
+    const hashes = new Set([...title.matchAll(HASH_NUMBER_RE)].map((m) => normalizeNumber(m[1]!)));
+    if (hashes.size > 1) flags.push('number_conflict');
+    else hashNumber = [...hashes][0] ?? null;
+  }
+
   return {
     grader: g ? toGrader(g[1]!) : null,
     grade: g ? Number.parseFloat(g[2]!) : null,
@@ -87,6 +117,7 @@ export function parseTitle(title: string): TitleParse {
     number: n ? normalizeNumber(n[1]!) : (promo?.number ?? null),
     total: n ? normalizeNumber(n[2]!) : null,
     promoSet: promo?.promoSet ?? null,
+    hashNumber,
     flags,
   };
 }

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { findCandidates, findPromoCandidates, getCard } from '../../src/catalog/catalog-repo.js';
+import { findCandidates, findCandidatesInSet, findPromoCandidates, getCard, listSets } from '../../src/catalog/catalog-repo.js';
 import { skippedTooMany, syncCatalog } from '../../src/catalog/sync.js';
 import { matchListing } from '../../src/matcher/matcher.js';
 import { silentLog } from '../../src/log.js';
@@ -174,5 +174,35 @@ describe('catalog', () => {
     expect(r.removed).toBe(0);
     expect(await getCard(db, 'old-1')).not.toBeNull();
     expect(logs.some((m) => m.startsWith('warn:') && m.includes('stale'))).toBe(true);
+  });
+});
+
+describe('catalog set lookups', () => {
+  it('lists distinct English sets and finds a card by set and number', async () => {
+    const db = await createTestDb();
+    await seedCards(db, [
+      { id: 'swsh7-095', name: 'Umbreon VMAX', number: '95', setId: 'swsh7', setName: 'Evolving Skies', setPrintedTotal: 203 },
+      { id: 'swsh7-215', name: 'Umbreon VMAX', number: '215', setId: 'swsh7', setName: 'Evolving Skies', setPrintedTotal: 203 },
+      { id: 'swsh4-95', name: 'Other', number: '95', setId: 'swsh4', setName: 'Vivid Voltage', setPrintedTotal: 185 },
+    ]);
+    expect(await listSets(db)).toEqual([{ id: 'swsh4', name: 'Vivid Voltage' }, { id: 'swsh7', name: 'Evolving Skies' }]);
+    expect((await findCandidatesInSet(db, 'swsh7', '095')).map((c) => c.id)).toEqual(['swsh7-095']);
+    expect((await findCandidatesInSet(db, 'swsh7', '95')).map((c) => c.id)).toEqual(['swsh7-095']);
+    expect(await findCandidatesInSet(db, 'swsh7', '96')).toEqual([]);
+  });
+
+  it('matches a PSA label title end to end against the repo', async () => {
+    const db = await createTestDb();
+    await seedCards(db, [
+      { id: 'swsh7-095', name: 'Umbreon VMAX', number: '95', setId: 'swsh7', setName: 'Evolving Skies', setPrintedTotal: 203 },
+      { id: 'swsh1-95', name: 'Umbreon VMAX', number: '95', setId: 'swsh1', setName: 'Sword & Shield', setPrintedTotal: 202 },
+    ]);
+    const lookup = (n: string, t: string | null, set?: string) => (set ? findCandidatesInSet(db, set, n) : findCandidates(db, n, t));
+    const r = await matchListing(
+      { title: '2021 POKEMON SWORD & SHIELD EVOLVING SKIES #095 FULL ART/UMBREON VMAX PSA 10', aspects: {} },
+      lookup,
+      () => listSets(db),
+    );
+    expect(r.match).toMatchObject({ cardId: 'swsh7-095', confidence: 0.855 });
   });
 });

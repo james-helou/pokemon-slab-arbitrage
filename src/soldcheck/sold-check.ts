@@ -1,8 +1,8 @@
-import { findCandidates, findPromoCandidates } from '../catalog/catalog-repo.js';
+import { findCandidates, findCandidatesInSet, listSets } from '../catalog/catalog-repo.js';
 import type { Db } from '../db/db.js';
 import { buildCheckLinks } from '../discord/check-links.js';
 import type { Log } from '../log.js';
-import type { CandidateLookup } from '../matcher/matcher.js';
+import type { CandidateLookup, SetLister } from '../matcher/matcher.js';
 import type { Settings } from '../settings/settings.js';
 import { detectBlocked, parseSoldResults, PARSER_VERSION } from './parse.js';
 import {
@@ -91,7 +91,8 @@ const startOfUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUT
  */
 export function createSoldCheck(deps: SoldCheckDeps): SoldCheck {
   const { db, log } = deps;
-  const lookup: CandidateLookup = (n, t, promo) => (promo ? findPromoCandidates(db, promo, n) : findCandidates(db, n, t));
+  const lookup: CandidateLookup = (n, t, set) => (set ? findCandidatesInSet(db, set, n) : findCandidates(db, n, t));
+  const sets: SetLister = () => listSets(db);
   // In-process floor under the DB-derived guards, so a failed sold_checks insert cannot let the next candidate fetch.
   let lastFetchAt: Date | null = null;
   let fetchDay = '';
@@ -140,7 +141,7 @@ export function createSoldCheck(deps: SoldCheckDeps): SoldCheck {
     }
 
     const summary = await summarizeSales(parseSoldResults(html), {
-      key, lookup, minMatchConfidence: settings.minMatchConfidence, now: at,
+      key, lookup, sets, minMatchConfidence: settings.minMatchConfidence, now: at,
     });
     await record(summary.status, summary);
     return {

@@ -1,10 +1,17 @@
 import type { CardCandidate } from '../catalog/catalog-repo.js';
 import type { Grader, Match } from '../domain/types.js';
+import { resolveTitleSet, type SetRef } from './set-names.js';
 import { normalizeNumber, parsePromos, parseTitle } from './title-parse.js';
 
-export const MATCHER_VERSION = 'v1.1.1';
+export const MATCHER_VERSION = 'v1.2.0';
 
-export type CandidateLookup = (number: string, total: string | null, promoSet?: string) => Promise<CardCandidate[]>;
+/**
+ * Cards with this number. With `setId` (a promo set, or the set named in a PSA label title) the search is that set
+ * only, ignoring zero padding; otherwise across sets, filtered by printed total when `total` is numeric.
+ */
+export type CandidateLookup = (number: string, total: string | null, setId?: string) => Promise<CardCandidate[]>;
+/** The catalog's sets, for resolving a set named in the title. Called only for "#N"-without-total titles. */
+export type SetLister = () => Promise<readonly SetRef[]>;
 
 export interface MatchResult {
   match: Match | null;
@@ -48,9 +55,16 @@ function nameInTitle(name: string, title: string): boolean {
 const PROMO_WORD = /\bpromo|black\s*star/i;
 const promoKey = (p: { promoSet: string; number: string }) => `${p.promoSet}:${Number.parseInt(p.number.replace(/\D/g, ''), 10)}`;
 
+/**
+ * Confidence: name + number agree with exactly one candidate = 0.95, x0.9 when the grade is only in the title, so a
+ * title-only match tops out at 0.855 (just over the 0.85 alert floor). The PSA label path (set named in title + "#N")
+ * uses the same numbers: it reaches 0.95/0.855 only when set, number and card name all agree; a name mismatch is
+ * 0.6. A bare Card Number aspect with no total and no set stays capped at 0.8.
+ */
 export async function matchListing(
   input: { title: string; aspects: Record<string, string> },
   lookup: CandidateLookup,
+  listSets?: SetLister,
 ): Promise<MatchResult> {
   const p = parseTitle(input.title);
   const lang = input.aspects['Language'];
@@ -76,10 +90,26 @@ export async function matchListing(
   if (aspectPromo && p.promoSet && promoKey(aspectPromo) !== promoKey({ promoSet: p.promoSet, number: p.number! })) {
     return { match: null, reasons: ['number_conflict'] };
   }
+  let labelSetTotalCheck: number | null = null;
+  const reasons: string[] = [];
   if (!number && aspectPromo) {
     number = aspectPromo.number;
     promoSet = aspectPromo.promoSet;
-  } else if (!number && aspectNumber) {
+  } else if (!number && p.hashNumber && listSets) {
+    const set = resolveTitleSet(input.title, await listSets());
+    if (set === 'ambiguous') return { match: null, reasons: ['ambiguous_set'] };
+    if (set) {
+      if (aspectNumber) {
+        const [an, at] = aspectNumber.split('/').map((x) => x.trim().replace(/^#/, ''));
+        if (!an || normalizeNumber(an) !== p.hashNumber) return { match: null, reasons: ['number_conflict'] };
+        if (at && /^\d+$/.test(at)) labelSetTotalCheck = Number(at);
+      }
+      number = p.hashNumber;
+      promoSet = set;
+      reasons.push('set_from_title');
+    }
+  }
+  if (!number && !aspectPromo && aspectNumber) {
     const [n, t] = aspectNumber.split('/').map((x) => x.trim());
     number = n ? normalizeNumber(n.replace(/^#/, '')) : null;
     total = t ? normalizeNumber(t) : null;
@@ -87,7 +117,6 @@ export async function matchListing(
   }
   if (!number) return { match: null, reasons: ['number_unknown'] };
 
-  const reasons: string[] = [];
   const cands = await lookup(number, total, promoSet ?? undefined);
   const named = cands.filter((c) => nameInTitle(c.name, input.title));
   let card: CardCandidate;
@@ -103,6 +132,9 @@ export async function matchListing(
     reasons.push('name_mismatch');
   } else {
     return { match: null, reasons: [cands.length > 1 ? 'ambiguous_card' : 'card_not_found'] };
+  }
+  if (labelSetTotalCheck !== null && card.setPrintedTotal !== labelSetTotalCheck) {
+    return { match: null, reasons: ['number_conflict'] };
   }
   if (numberWithoutTotal) {
     confidence = Math.min(confidence, 0.8);

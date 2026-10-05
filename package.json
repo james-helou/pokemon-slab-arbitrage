@@ -17,6 +17,7 @@
     "soldcheck:probe": "tsx src/soldcheck/probe-cli.ts",
     "report:weekly": "tsx src/reports/weekly-cli.ts",
     "report:weekly:local": "node --env-file=.env --import tsx src/reports/weekly-cli.ts",
+    "matcher:probe": "tsx scripts/matcher-probe.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",

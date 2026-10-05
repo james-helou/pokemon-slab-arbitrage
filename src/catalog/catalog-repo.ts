@@ -1,4 +1,5 @@
 import type { Db } from '../db/db.js';
+import type { SetRef } from '../matcher/set-names.js';
 
 export interface CardRow {
   id: string;
@@ -53,8 +54,11 @@ function canonPromo(n: string): string {
   return m ? `${m[1]}${m[2]}` : n.toUpperCase();
 }
 
-/** Cards of one promo set with this number (promo codes have no printed total). */
-export async function findPromoCandidates(db: Db, setId: string, number: string): Promise<CardCandidate[]> {
+/**
+ * Cards of one set with this number, ignoring zero padding ("095" = "95", "SWSH020" = "SWSH20"). Used for promo codes
+ * (no printed total) and for PSA label titles whose set is named in the title.
+ */
+export async function findCandidatesInSet(db: Db, setId: string, number: string): Promise<CardCandidate[]> {
   const { rows } = await db.query<{ id: string; name: string; number: string; set_printed_total: number | null }>(
     `select id, name, number, set_printed_total from cards where set_id = $1 and language = 'en' order by id`,
     [setId],
@@ -66,6 +70,17 @@ export async function findPromoCandidates(db: Db, setId: string, number: string)
       id: r.id, name: r.name, number: r.number,
       setPrintedTotal: r.set_printed_total === null ? null : Number(r.set_printed_total),
     }));
+}
+
+/** Promo codes resolve to one promo set; same search as findCandidatesInSet. */
+export const findPromoCandidates = findCandidatesInSet;
+
+/** Every English set in the catalog (id + name), for resolving a set named in a listing title. */
+export async function listSets(db: Db): Promise<SetRef[]> {
+  const { rows } = await db.query<{ id: string; name: string }>(
+    `select set_id as id, min(set_name) as name from cards where language = 'en' group by set_id order by set_id`,
+  );
+  return rows.map((r) => ({ id: r.id, name: r.name }));
 }
 
 export async function getCard(db: Db, id: string): Promise<CardRow | null> {
