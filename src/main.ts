@@ -6,6 +6,8 @@ import { migrate } from './db/migrate.js';
 import { sweepDisappeared } from './disappearing/sweep.js';
 import { startBot } from './discord/bot.js';
 import { deliverPending } from './discord/delivery.js';
+import { createAccountDeletionHandler } from './http/account-deletion.js';
+import { startHttpServer, type HttpServer } from './http/server.js';
 import { log } from './log.js';
 import { every } from './loop.js';
 import { getValuation } from './oracle/oracle.js';
@@ -105,6 +107,21 @@ async function main() {
     'weekly-report',
   );
 
+  // eBay Marketplace Account Deletion endpoint (required to keep the production keyset enabled).
+  let http: HttpServer | undefined;
+  if (cfg.EBAY_DELETION_ENDPOINT && cfg.EBAY_DELETION_VERIFICATION_TOKEN) {
+    const path = new URL(cfg.EBAY_DELETION_ENDPOINT).pathname;
+    http = await startHttpServer({
+      port: cfg.PORT ?? 8080, log,
+      handler: createAccountDeletionHandler({
+        endpoint: cfg.EBAY_DELETION_ENDPOINT, verificationToken: cfg.EBAY_DELETION_VERIFICATION_TOKEN, path, log,
+      }),
+    });
+    log('info', `account deletion endpoint: on (${path})`);
+  } else {
+    log('info', 'account deletion endpoint: off');
+  }
+
   let shuttingDown = false;
   const shutdown = async (signal: string) => {
     if (shuttingDown) return;
@@ -115,6 +132,7 @@ async function main() {
       // Let any in-flight job finish (bounded) before closing the bot and DB under it.
       await Promise.all([stopScan(), stopDeliver(), stopSweep(), stopOutcomes(), stopWeekly()]);
       await bot.stop();
+      await http?.close();
       await db.end();
     } catch (err) {
       log('error', 'shutdown failed', { message: err instanceof Error ? err.message : String(err) });

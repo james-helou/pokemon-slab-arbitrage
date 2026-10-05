@@ -23,7 +23,25 @@ const schema = z.object({
   POKETRACE_API_KEY: z.string().optional().transform((v) => v || undefined),
   /** off (default): no eBay sold-search fetches at all. on: guarded check on alert candidates only. */
   SOLD_CHECK: z.preprocess(blankToUndefined, z.enum(['off', 'on']).default('off')),
+  /** HTTP listen port (Railway sets it); main falls back to 8080. */
+  PORT: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).max(65535).optional()),
+  /** Public https URL registered with eBay for Marketplace Account Deletion notifications. */
+  EBAY_DELETION_ENDPOINT: z.preprocess(
+    blankToUndefined,
+    z.string().url().refine((u) => u.startsWith('https://'), { message: 'must be an https URL' }).optional(),
+  ),
+  /** 32-80 chars of [A-Za-z0-9_-], the same token entered in the eBay developer portal. */
+  EBAY_DELETION_VERIFICATION_TOKEN: z.preprocess(
+    blankToUndefined,
+    z.string().min(32).max(80).regex(/^[A-Za-z0-9_-]+$/).optional(),
+  ),
 }).superRefine((c, ctx) => {
+  if (c.EBAY_DELETION_ENDPOINT && !c.EBAY_DELETION_VERIFICATION_TOKEN) {
+    ctx.addIssue({ code: 'custom', path: ['EBAY_DELETION_VERIFICATION_TOKEN'], message: 'required when EBAY_DELETION_ENDPOINT is set' });
+  }
+  if (c.EBAY_DELETION_VERIFICATION_TOKEN && !c.EBAY_DELETION_ENDPOINT) {
+    ctx.addIssue({ code: 'custom', path: ['EBAY_DELETION_ENDPOINT'], message: 'required when EBAY_DELETION_VERIFICATION_TOKEN is set' });
+  }
   if (c.COMPS_SOURCE === 'poketrace' && !c.POKETRACE_API_KEY) {
     ctx.addIssue({ code: 'custom', path: ['POKETRACE_API_KEY'], message: 'required when COMPS_SOURCE=poketrace' });
   }
