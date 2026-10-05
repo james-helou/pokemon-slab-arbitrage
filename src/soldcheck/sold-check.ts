@@ -65,6 +65,19 @@ export interface SoldCheckDeps {
   log: Log;
 }
 
+/**
+ * The one request shape this feature ever sends (runner and probe). No cookies, no account, no spoofed browser
+ * identity, no retry: Node's default fetch plus plain content negotiation and a 10 s timeout.
+ */
+export async function fetchSoldPage(fetchFn: typeof fetch, url: string): Promise<{ status: number; html: string }> {
+  const res = await fetchFn(url, {
+    method: 'GET',
+    headers: { Accept: 'text/html', 'Accept-Language': 'en-US,en;q=0.9' },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  return { status: res.status, html: await res.text() };
+}
+
 const empty = (status: SoldCheckRunStatus, fetchedAt: Date | null = null): SoldCheckResult => ({
   status, saleCount: 0, median: null, low: null, high: null, newestSoldAt: null,
   fetchedAt: fetchedAt?.toISOString() ?? null, fromCache: false, parserVersion: fetchedAt ? PARSER_VERSION : null,
@@ -95,14 +108,7 @@ export function createSoldCheck(deps: SoldCheckDeps): SoldCheck {
     let status: number;
     let html: string;
     try {
-      // No cookies, no account, no spoofed browser identity: Node's default fetch plus plain content negotiation.
-      const res = await deps.fetch(link.url, {
-        method: 'GET',
-        headers: { Accept: 'text/html', 'Accept-Language': 'en-US,en;q=0.9' },
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      });
-      status = res.status;
-      html = await res.text();
+      ({ status, html } = await fetchSoldPage(deps.fetch, link.url));
     } catch (err) {
       log('warn', 'sold check fetch failed', { cardId: key.cardId, message: err instanceof Error ? err.message : String(err) });
       await record('error');
