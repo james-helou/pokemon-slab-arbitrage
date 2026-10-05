@@ -76,6 +76,17 @@ export function parsePromos(s: string, anchored = false, promoWord = PROMO_WORD_
   return [...out.values()];
 }
 
+/**
+ * Refusal flags carried by a free-text item aspect (Set, Edition, Features, ...): the same variant and non-English
+ * checks as the title, so "Set: Base Set Shadowless" or "Set: SV2a" refuse a title that looks plain.
+ */
+export function aspectTextFlags(v: string): string[] {
+  const out: string[] = [];
+  if (NON_ENGLISH_RE.test(v)) out.push('non_english');
+  if (VARIANT_RE.test(v)) out.push('variant');
+  return out;
+}
+
 export function normalizeNumber(n: string): string {
   return /^\d+$/.test(n) ? String(Number.parseInt(n, 10)) : n.toUpperCase();
 }

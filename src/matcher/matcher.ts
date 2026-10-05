@@ -1,7 +1,7 @@
 import type { CardCandidate } from '../catalog/catalog-repo.js';
 import type { Grader, Match } from '../domain/types.js';
 import { resolveTitleSetHit, setTokens, type SetHit, type SetRef } from './set-names.js';
-import { normalizeNumber, parsePromos, parseTitle } from './title-parse.js';
+import { aspectTextFlags, normalizeNumber, parsePromos, parseTitle } from './title-parse.js';
 
 export const MATCHER_VERSION = 'v1.2.0';
 
@@ -53,6 +53,8 @@ function nameInTitle(name: string, title: string): boolean {
 }
 
 /** Modifiers that, right before a name, make it a different card ("Dark Charizard", "Blaine's Charizard", "M Houndoom"). */
+// 's' is the possessive: tokens() splits "Blaine's Charizard" into blaine / s / charizard, so an 's' right before the
+// name means an owner prefix the card name does not carry.
 const BEFORE_MODS = new Set(['dark', 'light', 'shining', 'radiant', 'mega', 'm', 'alolan', 'galarian', 'hisuian', 'paldean', 's']);
 /** Modifiers that, right after a name, make it a different card ("Rillaboom V", "Greninja BREAK", "Torterra LV.X"). */
 const AFTER_MODS = new Set(['ex', 'gx', 'v', 'vmax', 'vstar', 'union', 'break', 'lv', 'lvx', 'x', 'y', 'prime', 'legend', 'star', 'delta']);
@@ -76,6 +78,9 @@ function labelNameInTitle(name: string, title: string): boolean {
   return false;
 }
 
+/** Free-text item aspects that can name a variant or a non-English printing the title leaves out. */
+const TEXT_ASPECTS = ['Set', 'Edition', 'Features', 'Finish', 'Parallel/Variety', 'Card Name', 'Country/Region of Manufacture'];
+
 const PROMO_WORD = /\bpromo|black\s*star/i;
 const promoKey = (p: { promoSet: string; number: string }) => `${p.promoSet}:${Number.parseInt(p.number.replace(/\D/g, ''), 10)}`;
 
@@ -85,7 +90,8 @@ const promoKey = (p: { promoSet: string; number: string }) => `${p.promoSet}:${N
  * uses the same numbers: it reaches 0.95/0.855 only when set, number and card name all agree; a name mismatch is
  * 0.6. A bare Card Number aspect with no total and no set stays capped at 0.8. The label path also uses a strict name
  * check (labelNameInTitle), refuses a set whose name is the card's name ("Deoxys"), and for an alias-resolved set
- * ("POKEMON GAME") refuses when any other set has a card with that number whose name is in the title.
+ * ("POKEMON GAME") or a one-token set name ("Evolutions", "Fossil") refuses when any other set has a card with that
+ * number whose name is in the title.
  */
 export async function matchListing(
   input: { title: string; aspects: Record<string, string> },
@@ -95,6 +101,10 @@ export async function matchListing(
   const p = parseTitle(input.title);
   const lang = input.aspects['Language'];
   if (lang && !/english/i.test(lang) && !p.flags.includes('non_english')) p.flags.push('non_english');
+  for (const k of TEXT_ASPECTS) {
+    for (const f of input.aspects[k] ? aspectTextFlags(input.aspects[k]!) : []) if (!p.flags.includes(f)) p.flags.push(f);
+  }
+  if (/^\s*yes/i.test(input.aspects['Autographed'] ?? input.aspects['Signed'] ?? '') && !p.flags.includes('variant')) p.flags.push('variant');
   const blocking = p.flags.filter((f) => BLOCKING_FLAGS.has(f));
   if (blocking.length > 0) return { match: null, reasons: blocking };
 
@@ -174,7 +184,7 @@ export async function matchListing(
   if (labelHit && confidence > 0.6) {
     const nameToks = new Set(setTokens(card.name));
     if (labelHit.tokens.every((t) => nameToks.has(t))) return { match: null, reasons: ['set_is_card_name'] };
-    if (labelHit.alias) {
+    if (labelHit.alias || labelHit.tokens.length === 1) {
       const elsewhere = (await lookup(number, null)).filter((c) => c.id !== card.id && nameInTitle(c.name, input.title));
       if (elsewhere.length > 0) return { match: null, reasons: ['ambiguous_card'] };
     }

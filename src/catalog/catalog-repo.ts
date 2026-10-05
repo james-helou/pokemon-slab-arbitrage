@@ -33,12 +33,19 @@ export async function upsertCards(db: Db, cards: CardRow[]): Promise<void> {
   );
 }
 
-/** Cards with this number; when the listing's denominator is numeric it must equal the set's printed total. */
+const CANON_NUMBER = (col: string) => `regexp_replace(upper(${col}), '^([A-Z]*)0+([0-9])', '\\1\\2')`;
+
+/**
+ * Cards with this number; when the listing's denominator is numeric it must equal the set's printed total. Without a
+ * total (a bare Card Number aspect, or the cross-set uniqueness check of the label path) numbers compare ignoring zero
+ * padding, like findCandidatesInSet; with a total the indexed exact comparison is kept.
+ */
 export async function findCandidates(db: Db, number: string, total: string | null): Promise<CardCandidate[]> {
   const numericTotal = total !== null && /^\d+$/.test(total) ? Number(total) : null;
+  const numberClause = numericTotal !== null ? 'upper(number) = upper($1)' : `${CANON_NUMBER('number')} = ${CANON_NUMBER('$1')}`;
   const { rows } = await db.query<{ id: string; name: string; number: string; set_printed_total: number | null }>(
     `select id, name, number, set_printed_total from cards
-     where upper(number) = upper($1) and language = 'en' ${numericTotal !== null ? 'and set_printed_total = $2' : ''}
+     where ${numberClause} and language = 'en' ${numericTotal !== null ? 'and set_printed_total = $2' : ''}
      order by id`,
     numericTotal !== null ? [number, numericTotal] : [number],
   );
@@ -72,8 +79,7 @@ export async function findCandidatesInSet(db: Db, setId: string, number: string)
     }));
 }
 
-export const SET_CACHE_TTL_MS = 10 * 60_000;
-const setCache = new WeakMap<Db, { at: number; sets: SetRef[] }>();
+const setCache = new WeakMap<Db, { fingerprint: string; sets: SetRef[] }>();
 
 /** Drops the cached set list for this db. syncCatalog calls it after writing. */
 export function invalidateSetCache(db: Db): void {
@@ -82,16 +88,21 @@ export function invalidateSetCache(db: Db): void {
 
 /**
  * Every English set in the catalog (id + name), for resolving a set named in a listing title. Memoized per db handle
- * for SET_CACHE_TTL_MS; an in-process catalog sync invalidates it, the TTL covers a sync run by another process.
+ * and keyed on a cheap catalog fingerprint (row count + newest updated_at), so a sync run by another process is seen
+ * on the next call; an in-process sync also invalidates it directly.
  */
-export async function listSets(db: Db, now: () => number = Date.now): Promise<SetRef[]> {
+export async function listSets(db: Db): Promise<SetRef[]> {
+  const { rows: fp } = await db.query<{ n: number; u: string | null }>(
+    `select count(*)::int as n, max(updated_at)::text as u from cards where language = 'en'`,
+  );
+  const fingerprint = `${fp[0]?.n ?? 0}|${fp[0]?.u ?? ''}`;
   const hit = setCache.get(db);
-  if (hit && now() - hit.at < SET_CACHE_TTL_MS) return hit.sets;
+  if (hit && hit.fingerprint === fingerprint) return hit.sets;
   const { rows } = await db.query<{ id: string; name: string }>(
     `select set_id as id, min(set_name) as name from cards where language = 'en' group by set_id order by set_id`,
   );
   const sets = rows.map((r) => ({ id: r.id, name: r.name }));
-  setCache.set(db, { at: now(), sets });
+  setCache.set(db, { fingerprint, sets });
   return sets;
 }
 

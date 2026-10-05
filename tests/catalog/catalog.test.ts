@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { findCandidates, findCandidatesInSet, getCard, listSets, SET_CACHE_TTL_MS } from '../../src/catalog/catalog-repo.js';
+import { findCandidates, findCandidatesInSet, getCard, listSets } from '../../src/catalog/catalog-repo.js';
+import type { Db } from '../../src/db/db.js';
 import { skippedTooMany, syncCatalog } from '../../src/catalog/sync.js';
 import { matchListing } from '../../src/matcher/matcher.js';
 import { silentLog } from '../../src/log.js';
@@ -208,24 +209,38 @@ describe('catalog set lookups', () => {
 });
 
 describe('listSets cache', () => {
-  it('memoizes per db and is refreshed by a catalog sync', async () => {
+  const counting = (db: Db) => {
+    const seen: string[] = [];
+    const wrapped: Db = { query: (t, p) => { seen.push(t); return db.query(t, p); }, exec: (t) => db.exec(t) };
+    return { wrapped, groupBys: () => seen.filter((t) => t.includes('group by')).length };
+  };
+
+  it('reuses the list while the catalog fingerprint is unchanged', async () => {
     const db = await createTestDb();
     await seedCards(db, [{ id: 'swsh7-95', name: 'Umbreon VMAX', number: '95', setId: 'swsh7', setName: 'Evolving Skies', setPrintedTotal: 203 }]);
-    expect((await listSets(db)).map((s) => s.id)).toEqual(['swsh7']);
-    await seedCards(db, [{ id: 'swsh4-1', name: 'X', number: '1', setId: 'swsh4', setName: 'Vivid Voltage', setPrintedTotal: 185 }]);
-    expect((await listSets(db)).map((s) => s.id)).toEqual(['swsh7']);
-    await syncCatalog(db, fakeFetch(), silentLog, { sleep: async () => {}, maxStaleRatio: 1 });
-    // The sync replaced the catalog (stale rows removed), so the cached list must be dropped.
-    expect((await listSets(db)).map((s) => s.id)).toEqual(['a', 'b', 'tg']);
+    const c = counting(db);
+    expect((await listSets(c.wrapped)).map((s) => s.id)).toEqual(['swsh7']);
+    expect((await listSets(c.wrapped)).map((s) => s.id)).toEqual(['swsh7']);
+    expect(c.groupBys()).toBe(1);
   });
 
-  it('expires after the TTL', async () => {
+  it('sees cards written by another process (no invalidate call)', async () => {
     const db = await createTestDb();
-    let now = 0;
     await seedCards(db, [{ id: 'swsh7-95', name: 'Umbreon VMAX', number: '95', setId: 'swsh7', setName: 'Evolving Skies', setPrintedTotal: 203 }]);
-    expect((await listSets(db, () => now)).length).toBe(1);
+    expect((await listSets(db)).map((s) => s.id)).toEqual(['swsh7']);
     await seedCards(db, [{ id: 'swsh4-1', name: 'X', number: '1', setId: 'swsh4', setName: 'Vivid Voltage', setPrintedTotal: 185 }]);
-    now = SET_CACHE_TTL_MS + 1;
-    expect((await listSets(db, () => now)).length).toBe(2);
+    expect((await listSets(db)).map((s) => s.id)).toEqual(['swsh4', 'swsh7']);
+    await db.query(`update cards set set_name = 'Renamed', updated_at = now() + interval '1 second' where id = 'swsh4-1'`);
+    expect((await listSets(db)).find((s) => s.id === 'swsh4')?.name).toBe('Renamed');
+  });
+});
+
+describe('findCandidates without a total', () => {
+  it('compares numbers ignoring zero padding', async () => {
+    const db = await createTestDb();
+    await db.query(`insert into cards (id, name, number, set_id, set_name, set_printed_total) values ('x-095', 'Odd', '095', 'x', 'X', 100)`);
+    await seedCards(db, [{ id: 'y-95', name: 'Even', number: '95', setId: 'y', setName: 'Y', setPrintedTotal: 100 }]);
+    expect((await findCandidates(db, '95', null)).map((c) => c.id)).toEqual(['x-095', 'y-95']);
+    expect((await findCandidates(db, '095', null)).map((c) => c.id)).toEqual(['x-095', 'y-95']);
   });
 });

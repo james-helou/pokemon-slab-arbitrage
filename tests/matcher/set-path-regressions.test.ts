@@ -63,9 +63,31 @@ describe('set path: confirmed wrong-card matches must not reach the alert floor'
     'Charizard Dark #4 Team Rocket Returns PSA 9',
     // Evolutions reprints Drowzee as #49, so the POKEMON GAME alias cannot tell base1-49 from xy12-49.
     '1999 POKEMON GAME #49 DROWZEE PSA 8',
+    // One-token set names used as ordinary words ("Dragon" type, not the EX Dragon set).
+    'Altaria Holo #2 Dragon PSA 9 2010',
+    'Altaria #2 Dragon Type Holo PSA 9',
+    'Dratini #26 1999 WOTC Dragon Type Holo PSA 9',
+    'Dratini #26 Dragon PSA 9 Base',
+    'Vibrava #46 Dragon Type PSA 10',
+    'Charmander #98 Expedition Dragon PSA 9',
   ])('%s', async (title) => {
     const r = await run(title);
     expect(r.match?.confidence ?? 0, `${title} -> ${r.match?.cardId}`).toBeLessThan(0.85);
+  });
+
+  it.each([
+    [{ Set: 'Base Set Shadowless' }],
+    [{ Edition: '1st Edition' }],
+    [{ Features: 'Shadowless, Holo' }],
+    [{ Finish: 'Reverse Holo' }],
+    [{ Set: 'SV2a: Pokemon Card 151' }],
+    [{ Language: 'Japanese' }],
+    [{ 'Country/Region of Manufacture': 'Japan' }],
+  ])('refuses a variant or non-English card named only in the aspects: %o', async (aspects) => {
+    const r = await run('1999 POKEMON GAME #58 PIKACHU PSA 9', aspects);
+    expect(r.match).toBeNull();
+    const n = await run('PSA 9 Pikachu 58/102', aspects);
+    expect(n.match).toBeNull();
   });
 
   it('rejects a Set aspect that names a different set than the title', async () => {
@@ -92,6 +114,20 @@ describe('set path: correct label titles still match', () => {
     const card = r.match ? await getCard(db, r.match.cardId) : null;
     expect(card?.id ?? r.reasons.join(','), title).toBe(id);
     expect(r.match?.confidence).toBe(0.855);
+  });
+
+  it('reads the EX DRAGON label form', async () => {
+    const r = await run('2003 POKEMON EX DRAGON #94 LATIOS EX PSA 9');
+    expect(r.match).toMatchObject({ cardId: 'ex3-94', confidence: 0.855 });
+  });
+
+  it('refuses an EX DRAGON number whose name another set shares (ex15-97 Rayquaza ex δ)', async () => {
+    expect((await run('2003 POKEMON EX DRAGON #97 RAYQUAZA EX PSA 9')).match?.confidence ?? 0).toBeLessThan(0.85);
+  });
+
+  it('keeps a match whose aspects are plain', async () => {
+    const r = await run('1999 POKEMON GAME #58 PIKACHU PSA 9', { Set: 'Base Set', Edition: 'Unlimited', Language: 'English' });
+    expect(r.match?.cardId).toBe('base1-58');
   });
 
   it('accepts a Set aspect naming the same set', async () => {

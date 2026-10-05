@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveTitleSet, type SetRef } from '../../src/matcher/set-names.js';
+import { resolveTitleSet, resolveTitleSetHit, type SetRef } from '../../src/matcher/set-names.js';
 
 const SETS: SetRef[] = [
   ['base1', 'Base Set'], ['base4', 'Base Set 2'], ['base5', 'Team Rocket'], ['lc', 'Legendary Collection'],
@@ -94,6 +94,19 @@ describe('resolveTitleSet', () => {
   it('keeps a product word that is part of the resolved name', () => {
     expect(resolveTitleSet('2019 POKEMON SUN & MOON HIDDEN FATES SHINY VAULT #60 CHARIZARD PSA 10', SETS)).toBe('sma');
     expect(resolveTitleSet('2025 POKEMON SVP EN-SV BLACK STAR PROMO #205 X PSA 10', SETS)).toBe('svp');
+  });
+
+  it.each([
+    ['2003 POKEMON EX DRAGON #97 RAYQUAZA EX PSA 9', 'ex3'],
+    ['2004 POKEMON EX DRAGON FRONTIERS #100 CHARIZARD STAR PSA 9', 'ex15'],
+    ['Altaria Holo #2 Dragon PSA 9 2010', null],
+    ['Vibrava #46 Dragon Type PSA 10', null],
+  ])('resolves the Dragon set only as EX DRAGON: %s', (title, want) => {
+    expect(resolveTitleSet(title, SETS)).toBe(want);
+  });
+
+  it('reports one-token hits so the caller can demand catalog uniqueness', () => {
+    expect(resolveTitleSetHit('Charizard #11 Evolutions PSA 10', SETS)).toMatchObject({ id: 'xy12', alias: false, tokens: ['evolutions'] });
   });
 
   it('ignores the #N itself, so #151 is not the 151 set', () => {

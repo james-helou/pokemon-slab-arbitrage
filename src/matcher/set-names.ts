@@ -7,12 +7,15 @@
  *  1. "#N" numbers are removed first, so "#151" never names the "151" set.
  *  2. A hit followed by a possessive "s" is a card owner prefix, not a set ("TEAM ROCKET'S MEWTWO").
  *  3. An all-digit set name ("151") counts only with an English marker (EN / English): Japanese "151" shares numbering.
- *  4. A hit nested inside a longer hit is dropped ("Evolutions" inside "Prismatic Evolutions").
+ *  4. A hit nested inside a longer hit is dropped ("Evolutions" inside "Prismatic Evolutions"), and an alias hit that
+ *     overlaps another set's TCGdex name is dropped ("EX DRAGON FRONTIERS" is Dragon Frontiers, not EX DRAGON).
+ *     Some TCGdex names are ordinary words and resolve only through an alias (NAME_VIA_ALIAS_ONLY: "Dragon").
  *  5. Era names (Sword & Shield, Sun & Moon, ...) only ever disambiguate: if nothing but era names is hit, no set.
  *  6. Two or more different non-era sets (canonical or alias, any length) is 'ambiguous'.
  *  7. A guard word (promo, McDonald's, trainer kit, gallery, vault, calendar) outside the resolved hit means the title
  *     names a product the resolved set does not cover: no set.
- * The caller must still check the card name, and for an alias hit that no other set has the same number + name.
+ * The caller must still check the card name, and for an alias or one-token hit ("Evolutions", "Fossil") that no other
+ * set has a card with the same number whose name is in the title.
  */
 
 export interface SetRef {
@@ -37,6 +40,7 @@ export const SET_ALIASES: Record<string, string> = {
   'POKEMON GAME': 'base1',
   'POKEMON ROCKET': 'base5',
   'POKEMON EXPEDITION': 'ecard1',
+  'EX DRAGON': 'ex3',
   'BASE SET II': 'base4',
   'BASE II': 'base4',
   'BASE 2': 'base4',
@@ -46,6 +50,9 @@ export const SET_ALIASES: Record<string, string> = {
   'SWSH BLACK STAR PROMO': 'swshp',
   'SM BLACK STAR PROMO': 'smp',
 };
+
+/** TCGdex names that are ordinary words in titles ("Dragon Type"); these sets resolve only through SET_ALIASES. */
+const NAME_VIA_ALIAS_ONLY = new Set(['ex3']);
 
 /** Sets whose name is also the series name PSA prefixes to every set of that era. They never resolve on their own. */
 const ERA_SET_IDS = new Set(['dp1', 'pl1', 'hgss1', 'bw1', 'xy1', 'sm1', 'swsh1', 'sv01', 'me01']);
@@ -57,7 +64,7 @@ const ENGLISH_MARKERS = new Set(['en', 'english']);
 export function setTokens(s: string): string[] {
   return s
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/&/g, ' and ')
     .split(/[^a-z0-9]+/)
@@ -87,7 +94,7 @@ export function resolveTitleSetHit(title: string, sets: readonly SetRef[]): SetH
   const hay = setTokens(title.replace(/#\s?\d+/g, ' '));
   const known = new Set(sets.map((s) => s.id));
   const names = [
-    ...sets.map((s) => ({ id: s.id, alias: false, tokens: setTokens(s.name) })),
+    ...sets.filter((s) => !NAME_VIA_ALIAS_ONLY.has(s.id)).map((s) => ({ id: s.id, alias: false, tokens: setTokens(s.name) })),
     ...Object.entries(SET_ALIASES).filter(([, id]) => known.has(id)).map(([a, id]) => ({ id, alias: true, tokens: setTokens(a) })),
   ];
   const english = hay.some((t) => ENGLISH_MARKERS.has(t));
@@ -101,6 +108,7 @@ export function resolveTitleSetHit(title: string, sets: readonly SetRef[]): SetH
     }
   }
   hits = hits.filter((h) => !hits.some((o) => o !== h && o.start <= h.start && o.end >= h.end && o.end - o.start > h.end - h.start));
+  hits = hits.filter((h) => !h.alias || !hits.some((o) => !o.alias && o.id !== h.id && o.start < h.end && h.start < o.end));
   const real = hits.filter((h) => !h.era);
   if (real.length === 0) return null;
   const ids = new Set(real.map((h) => h.id));
