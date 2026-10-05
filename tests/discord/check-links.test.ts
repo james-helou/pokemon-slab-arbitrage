@@ -22,6 +22,28 @@ describe('buildCheckLinks', () => {
     expect(u.searchParams.get('type')).toBe('prices');
   });
 
+  it('builds a PSA auction prices link on name, number, grader and grade', () => {
+    const psa = buildCheckLinks(base).find((l) => l.label === 'PSA APR')!;
+    const u = new URL(psa.url);
+    expect(u.origin + u.pathname).toBe('https://www.psacard.com/auctionprices/search');
+    expect(u.searchParams.get('q')).toBe('Charizard ex 199 PSA 10');
+    expect([...u.searchParams.keys()]).toEqual(['q']);
+  });
+
+  it('returns eBay sold, PriceCharting and PSA APR, all https', () => {
+    const links = buildCheckLinks(base);
+    expect(links.map((l) => l.label)).toEqual(['eBay sold', 'PriceCharting', 'PSA APR']);
+    for (const l of links) expect(new URL(l.url).protocol).toBe('https:');
+  });
+
+  it('truncates long names by code points, never splitting a surrogate pair', () => {
+    const name = `${'a'.repeat(79)}\u{1F525}tail`;
+    const ebay = new URL(buildCheckLinks({ ...base, name })[0]!.url);
+    const q = ebay.searchParams.get('_nkw')!;
+    expect(q).toBe(`${'a'.repeat(79)}\u{1F525} 199 PSA 10`);
+    expect(q).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+  });
+
   it('strips the printed total from the number', () => {
     const ebay = buildCheckLinks({ ...base, number: '199/165' })[0]!;
     expect(new URL(ebay.url).searchParams.get('_nkw')).toBe('Charizard ex 199 PSA 10');

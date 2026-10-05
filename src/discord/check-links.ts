@@ -29,8 +29,9 @@ export function ebaySoldSearchUrl(query: string): string {
  * Manual price-check links for an alert. Patterns confirmed 2026-10-04:
  * - eBay sold: standard /sch/i.html search with LH_Sold=1&LH_Complete=1.
  * - PriceCharting: GET /search-products?q=&type=prices (the site's own search form).
- * 130point and PSA Auction Prices Realized were dropped: both answer logged-out
- * requests with a Cloudflare challenge, so their search URL could not be confirmed.
+ * - PSA APR: GET https://www.psacard.com/auctionprices/search?q=<name number grader grade>, confirmed from a
+ *   secondary source. The site Cloudflare-challenges bots (humans pass), so it is a link only and never fetched.
+ * 130point is still pending: its search URL pattern is unconfirmed.
  * PriceCharting gets name + number only; its product search does not understand grader/grade.
  */
 export function buildCheckLinks(input: CheckLinkInput): CheckLink[] {
@@ -41,16 +42,20 @@ export function buildCheckLinks(input: CheckLinkInput): CheckLink[] {
     const pc = new URL('https://www.pricecharting.com/search-products');
     pc.searchParams.set('q', cardQuery);
     pc.searchParams.set('type', 'prices');
+    const psa = new URL('https://www.psacard.com/auctionprices/search');
+    psa.searchParams.set('q', gradedQuery);
     return [
       { label: 'eBay sold', url: ebaySoldSearchUrl(gradedQuery) },
       { label: 'PriceCharting', url: pc.toString() },
+      { label: 'PSA APR', url: psa.toString() },
     ];
   };
-  let name = input.name.trim().slice(0, MAX_NAME);
-  let links = build(name);
-  while (name.length > 0 && links.some((l) => l.url.length > MAX_URL)) {
-    name = name.slice(0, -1);
-    links = build(name);
+  // Code points, not UTF-16 units, so an emoji or astral character is never cut in half.
+  const chars = Array.from(input.name.trim()).slice(0, MAX_NAME);
+  let links = build(chars.join(''));
+  while (chars.length > 0 && links.some((l) => l.url.length > MAX_URL)) {
+    chars.pop();
+    links = build(chars.join(''));
   }
   return links.filter((l) => l.url.length <= MAX_URL);
 }

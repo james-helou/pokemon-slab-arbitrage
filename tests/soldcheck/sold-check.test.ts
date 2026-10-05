@@ -46,9 +46,13 @@ const rows = async (db: Db) =>
     'select status, sale_count, parser_version, query from sold_checks order by id',
   )).rows;
 
+/** Non-ok rows carry no stats (sold_checks_stats_only_when_ok). */
 const row = (over: Partial<NewSoldCheck> = {}): NewSoldCheck => ({
   ...key, query: 'q', status: 'ok', fetchedAt: T0, saleCount: 6, median: 600, low: 590, high: 610,
-  newestSoldAt: new Date('2026-10-02T00:00:00.000Z'), matchedTitles: [], parserVersion: PARSER_VERSION, ...over,
+  newestSoldAt: new Date('2026-10-02T00:00:00.000Z'), matchedTitles: [], parserVersion: PARSER_VERSION,
+  ...(over.status && over.status !== 'ok'
+    ? { saleCount: 0, median: null, low: null, high: null, newestSoldAt: null } : {}),
+  ...over,
 });
 
 describe('createSoldCheck', () => {

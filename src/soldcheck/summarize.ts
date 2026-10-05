@@ -41,6 +41,10 @@ const cents = (n: number) => Math.round(n * 100) / 100;
  * Pure apart from the injected lookup. Keeps a sale only when it is a single USD sale at a known price,
  * sold within 90 days, and the same rules matcher the pipeline uses (no LLM) maps its title to the same
  * card, grader and grade at or above minMatchConfidence, with no grade label (pristine/black label).
+ *
+ * Confidence ceiling: sold titles carry no item aspects, so the best a title-only match can score is
+ * 0.95 (name in title) x 0.9 (grade from title) = 0.855. That sits just above the 0.85 default floor;
+ * raising minMatchConfidence past 0.855 would silently drop every sale. A test pins this.
  */
 export async function summarizeSales(sales: ParsedSale[], opts: SummarizeOpts): Promise<SoldSummary> {
   const { key, lookup, minMatchConfidence, now } = opts;

@@ -70,7 +70,7 @@ describe('buildAlertPayload', () => {
     const p = buildAlertPayload(rec);
     expect(p.components).toHaveLength(2);
     const links = p.components[1]!.components as { style: number; label: string; url: string }[];
-    expect(links.map((b) => b.label)).toEqual(['eBay sold', 'PriceCharting']);
+    expect(links.map((b) => b.label)).toEqual(['eBay sold', 'PriceCharting', 'PSA APR']);
     expect(links.length).toBeLessThanOrEqual(5);
     for (const b of links) {
       expect(b.style).toBe(ButtonStyle.Link);

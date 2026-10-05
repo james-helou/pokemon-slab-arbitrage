@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { findCandidates, findPromoCandidates } from '../../src/catalog/catalog-repo.js';
-import type { CandidateLookup } from '../../src/matcher/matcher.js';
-import type { ParsedSale } from '../../src/soldcheck/parse.js';
+import { matchListing, type CandidateLookup } from '../../src/matcher/matcher.js';
+import { DEFAULT_SETTINGS } from '../../src/settings/settings.js';
+import { parseSoldResults, type ParsedSale } from '../../src/soldcheck/parse.js';
 import { median, percentile, summarizeSales } from '../../src/soldcheck/summarize.js';
+import { soldHtml } from '../helpers/sold-html.js';
 import { createTestDb } from '../helpers/test-db.js';
 import { CHARIZARD_151, seedCards } from '../helpers/fixtures.js';
 
@@ -67,6 +69,40 @@ describe('summarizeSales', () => {
       sale({ price: 640, soldAt: new Date(NOW.getTime() - 89 * DAY) }),
     ]);
     expect(s).toMatchObject({ status: 'ok', saleCount: 1, median: 640 });
+  });
+
+  it('drops a zero, NaN or future-dated sale', async () => {
+    const s = await run([
+      sale({ price: 0 }),
+      sale({ price: Number.NaN }),
+      sale({ soldAt: new Date(NOW.getTime() + 2 * DAY) }),
+      sale({ price: 610 }),
+    ]);
+    expect(s).toMatchObject({ status: 'ok', saleCount: 1, median: 610 });
+  });
+
+  it('drops parsed lots (x2, 2x, pair, duo) and keeps single-card titles', async () => {
+    const titles = [
+      'PSA 10 Charizard ex 199/165 151 x2',
+      '2x PSA 10 Charizard ex 199/165 151',
+      'PSA 10 Charizard ex 199/165 151 pair',
+      'PSA 10 Charizard ex 199/165 151 Duo',
+      'PSA 10 Charizard ex 199/165 151 Special Illustration Rare',
+      'Charizard ex 199/165 PSA 10 Pokemon 151',
+    ];
+    const parsed = parseSoldResults(soldHtml(titles.map((title, i) => ({ title, price: 600 + i, sold: 'Oct 2, 2026' }))));
+    expect(parsed).toHaveLength(6);
+    const s = await run(parsed);
+    expect(s.matchedTitles).toEqual(titles.slice(4));
+  });
+
+  it('passes a clean title at the default 0.85 floor (title-only ceiling is 0.855)', async () => {
+    const lk = await lookup();
+    const { match } = await matchListing({ title: sale().title, aspects: {} }, lk);
+    expect(match!.confidence).toBe(0.855);
+    const s = await summarizeSales([sale()], { key, lookup: lk, minMatchConfidence: DEFAULT_SETTINGS.minMatchConfidence, now: NOW });
+    expect(DEFAULT_SETTINGS.minMatchConfidence).toBe(0.85);
+    expect(s.saleCount).toBe(1);
   });
 
   it('drops a low-confidence match (name not in title)', async () => {
