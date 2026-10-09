@@ -84,3 +84,18 @@ describe('settings', () => {
     });
   });
 });
+
+describe('rawCeilingMultipliers setting', () => {
+  it('defaults, loads a valid object, and falls back on bad values', async () => {
+    const { createTestDb } = await import('../helpers/test-db.js');
+    const db = await createTestDb();
+    const put = (v: string) => db.query(`insert into settings (key, value) values ('rawCeilingMultipliers', $1::jsonb) on conflict (key) do update set value = excluded.value`, [v]);
+    expect((await loadSettings(db)).rawCeilingMultipliers).toEqual(DEFAULT_SETTINGS.rawCeilingMultipliers);
+    await put('{"10": 30, "default": 5}');
+    expect((await loadSettings(db)).rawCeilingMultipliers).toEqual({ '10': 30, default: 5 });
+    await put('{"10": -1, "9": "x", "default": 6}');
+    expect((await loadSettings(db)).rawCeilingMultipliers).toEqual({ '10': 25, '9': 8, default: 6 });
+    await put('"nope"');
+    expect((await loadSettings(db)).rawCeilingMultipliers).toEqual(DEFAULT_SETTINGS.rawCeilingMultipliers);
+  });
+});

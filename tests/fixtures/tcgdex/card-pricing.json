@@ -1,0 +1,14 @@
+{
+  "id": "swsh7-215",
+  "name": "Umbreon VMAX",
+  "pricing": {
+    "tcgplayer": {
+      "unit": "USD",
+      "updated": "2026-10-08T20:00:00.000Z",
+      "holofoil": { "productId": 1, "lowPrice": 1900, "midPrice": 2100, "highPrice": 3000, "marketPrice": 2351.42, "directLowPrice": null },
+      "normal": { "productId": 2, "lowPrice": 1, "midPrice": 2, "highPrice": 3, "marketPrice": 120.5, "directLowPrice": null },
+      "reverseHolofoil": { "productId": 3, "marketPrice": 9999 },
+      "1stEditionHolofoil": { "productId": 4, "marketPrice": 8888 }
+    }
+  }
+}

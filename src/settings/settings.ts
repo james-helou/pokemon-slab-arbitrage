@@ -13,6 +13,8 @@ export interface Settings {
   fxFeePct: number;
   /** Shipping (USD) assumed for the stage-1 pre-score when the search summary has none. Stage 2 uses the real cost. */
   stage1ShippingEstimate: number;
+  /** Max plausible graded price as a multiple of the raw (TCGdex) price, by grade ("10", "9.5", ...; "default" otherwise). */
+  rawCeilingMultipliers: Record<string, number>;
   /** Multiplier applied to comps whose real price may be hidden (accepted Best Offers). Not applied to paid_source. */
   boDiscount: number;
   valuationMaxAgeHours: number;
@@ -58,6 +60,7 @@ export const DEFAULT_SETTINGS: Settings = {
   buyTaxRate: 0.14975,
   fxFeePct: 0,
   stage1ShippingEstimate: 35,
+  rawCeilingMultipliers: { '10': 25, '9.5': 10, '9': 8, default: 4 },
   boDiscount: 0.92,
   valuationMaxAgeHours: 24,
   minCompCount: 3,
@@ -108,6 +111,17 @@ const MAXIMUMS: Partial<Record<keyof Settings, number>> = {
   stage1ShippingEstimate: 200,
 };
 
+/** Non-object -> defaults; a non-positive/non-numeric entry -> that key's default. */
+function loadMultipliers(value: unknown): Record<string, number> {
+  const dflt = DEFAULT_SETTINGS.rawCeilingMultipliers;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { ...dflt };
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(value)) {
+    out[k] = typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : (dflt[k] ?? dflt['default']!);
+  }
+  return out;
+}
+
 export async function loadSettings(db: Db): Promise<Settings> {
   const { rows } = await db.query<{ key: string; value: unknown }>('select key, value from settings');
   const out: Settings = { ...DEFAULT_SETTINGS };
@@ -121,6 +135,7 @@ export async function loadSettings(db: Db): Promise<Settings> {
         ? Math.min(Math.max(value, MINIMUMS[key] ?? -Infinity), MAXIMUMS[key] ?? Infinity)
         : dflt;
     }
+    if (key === 'rawCeilingMultipliers') value = loadMultipliers(value);
     (out as unknown as Record<string, unknown>)[key] = value;
   }
   return out;

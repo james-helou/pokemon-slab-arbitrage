@@ -15,6 +15,7 @@ import { getValuation } from './oracle/oracle.js';
 import { buildOracleDeps } from './oracle/oracle-wiring.js';
 import { runOutcomes } from './outcomes/outcome-tracker.js';
 import type { EvaluateDeps } from './pipeline/evaluate.js';
+import { getRawPrice } from './rawprice/raw-price.js';
 import { scanCycle } from './pipeline/scan-cycle.js';
 import { runWeeklyReportJob } from './reports/weekly-job.js';
 import { loadSettings } from './settings/settings.js';
@@ -48,6 +49,8 @@ async function main() {
   // COMPS_SOURCE picks fixture (sample comps) or poketrace (aggregates + own DB comps, fixture excluded).
   const oracle = await buildOracleDeps(cfg, { db, now, log, fetch });
   const valuate: EvaluateDeps['valuate'] = (key, settings) => getValuation(oracle, key, settings);
+  // Free TCGdex raw price: pre-filters hopeless listings before the paid valuation call (all comps sources).
+  const rawPrice: NonNullable<EvaluateDeps['rawPrice']> = (cardId) => getRawPrice({ db, fetch, now, log }, cardId);
   // SOLD_CHECK=off (default) wires nothing; on adds the guarded eBay sold check for alert candidates only.
   const soldCheck = buildSoldCheckDep(cfg, { db, now, log, fetch });
 
@@ -66,7 +69,7 @@ async function main() {
   const stopScan = every(
     async () => (await loadSettings(db)).scanIntervalSeconds * 1000,
     async () => {
-      const s = await scanCycle({ db, ebay, budget, valuate, now, log, ...(soldCheck ? { soldCheck } : {}) }, cycle++);
+      const s = await scanCycle({ db, ebay, budget, valuate, rawPrice, now, log, ...(soldCheck ? { soldCheck } : {}) }, cycle++);
       log('info', 'scan cycle', { ...s });
     },
     log,

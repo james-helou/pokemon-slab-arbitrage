@@ -9,7 +9,7 @@ import type { Log } from '../log.js';
 import { matchListing, type CandidateLookup, type SetLister } from '../matcher/matcher.js';
 import { basicRedFlags } from '../risk/basic-flags.js';
 import { score } from '../scoring/scorer.js';
-import type { Settings } from '../settings/settings.js';
+import { DEFAULT_SETTINGS, type Settings } from '../settings/settings.js';
 import { soldCheckVerdict, type SoldCheck, type SoldCheckSnapshot } from '../soldcheck/sold-check.js';
 import type { EbayClient } from '../sources/ebay/ebay-client.js';
 import { isOutOfStock, mergeItemDetails } from '../sources/ebay/normalize.js';
@@ -22,6 +22,8 @@ export interface EvaluateDeps {
   log: Log;
   /** SOLD_CHECK=on only. Absent: behaviour is exactly as before. Present: may demote an alert, never promote one. */
   soldCheck?: SoldCheck;
+  /** Free raw (ungraded) USD price for a card, or null when unknown. Absent: no raw-price pre-filter or flag. */
+  rawPrice?: (cardId: string) => Promise<number | null>;
 }
 
 export type EvaluateStatus =
@@ -62,6 +64,19 @@ export async function evaluateListing(
   if (gate1) return gate1;
 
   const key: ValuationKey = { cardId: first.match.cardId, grader: first.match.grader, grade: first.match.grade };
+  const rawUsd = deps.rawPrice ? await deps.rawPrice(key.cardId) : null;
+  if (rawUsd !== null) {
+    const mults = settings.rawCeilingMultipliers;
+    const fallback = DEFAULT_SETTINGS.rawCeilingMultipliers;
+    const mult = mults[String(key.grade)] ?? mults['default'] ?? fallback['default']!;
+    const ceiling = rawUsd * mult;
+    if (ceiling < settings.valueFloor) return { status: 'rejected', reasons: ['raw_ceiling_below_floor'] };
+    const shipping = listing.shipping ?? settings.stage1ShippingEstimate;
+    if (listing.price + shipping > settings.alertRatio * ceiling) {
+      return { status: 'rejected', reasons: ['price_above_raw_ceiling'] };
+    }
+  }
+
   const valuation = await deps.valuate(key, settings);
   if (!valuation) return { status: 'no_valuation', reasons: [] };
   if (deps.now().getTime() - valuation.computedAt.getTime() > settings.valuationMaxAgeHours * 3_600_000) {
@@ -98,6 +113,9 @@ export async function evaluateListing(
   if (enriched.shipping === null) return { status: 'rejected', reasons: ['shipping_unknown'] };
 
   const redFlags = basicRedFlags(enriched, m);
+  if (rawUsd !== null && valuation.value < rawUsd) {
+    redFlags.push({ code: 'graded_below_raw', blocking: false, confidencePenalty: 0.3 });
+  }
   const final = score({
     price: enriched.price, shipping: enriched.shipping, valuation, matchConfidence: m.confidence,
     redFlags, channels, settings, availableCash: cash,
