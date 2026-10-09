@@ -15,25 +15,15 @@ const NEGATIVE_TTL_MS = 7 * 86_400_000;
 const FAILED_TTL_MS = 3_600_000;
 const WINDOW_DAYS = 30;
 /** Bump when the parser is verified or changed; the probe prints it. */
-export const PPT_PARSER_VERSION = 'v0-unverified';
+export const PPT_PARSER_VERSION: string = 'v1.0.0';
 
-/** Candidate grade keys for a grader+grade: psa10 / PSA10 / psa_10 / PSA_10, and 9.5 as 9_5 or 9.5. */
-function gradeKeys(key: Pick<Key, 'grader' | 'grade'>): string[] {
-  const g = String(key.grade);
-  const grades = [...new Set([g, g.replace('.', '_')])];
-  const out: string[] = [];
-  for (const sep of ['', '_']) {
-    for (const gr of grades) {
-      const base = `${key.grader}${sep}${gr}`;
-      out.push(base.toLowerCase(), base.toUpperCase());
-    }
-  }
-  return [...new Set(out)];
+/** PPT's grade key: lowercase grader + grade with _ for decimals (psa10, psa8_5, bgs9_5). */
+function gradeKey(key: Pick<Key, 'grader' | 'grade'>): string {
+  return `${key.grader}${String(key.grade).replace('.', '_')}`.toLowerCase();
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const positive = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
-const count = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 const MAX_STAMP_AGE_MS = 72 * 3_600_000;
 const ID_FIELDS = ['tcgPlayerId', 'tcgplayerId', 'tcgPlayerID', 'tcgplayer_id'];
 
@@ -56,12 +46,14 @@ export interface ParseCtx {
 }
 
 /**
- * Pulls a graded price out of a PPT card response. null for labelled grades, a response that is not exactly the
- * requested card, a non-USD currency, a stamp older than 72h, a missing grade object, or no usable price/count.
- * TODO(verify) against a real response (npm run ppt:probe), three unknowns: (1) the grade key format (psa10 vs PSA10
- * vs psa_10), (2) whether salesCount is a lifetime count or the 30 day window, (3) the exact field names. While the
- * parser is unverified a finite dailyVolume7Day is required and salesCount is clamped by dailyVolume7Day * 30, so a
- * lifetime count cannot pass as a 30 day one.
+ * Pulls a graded price out of a PPT card response (shape verified against a real response, 2026-10-09; see
+ * tests/fixtures/ppt). null (fail closed) for labelled grades, a response that is not exactly the requested card, a
+ * non-USD currency, a missing grade, or anything that is not a recent, trustworthy price.
+ *
+ * count, medianPrice, averagePrice, minPrice, maxPrice and totalValue are LIFETIME figures and are never used. The
+ * value is smartMarketPrice.price (needs confidence high/medium, daysUsed <= 30, a method not starting with "all",
+ * and no smartPriceOutlierByGrade flag), lowered to marketPriceMedian7Day when that is lower. lastSaleDate must be
+ * within 30 days. The count is dailyVolume7Day * 7.
  */
 export function parsePptCard(body: unknown, key: Pick<Key, 'grader' | 'grade' | 'gradeLabel'>, ctx: ParseCtx): AggregatePrice | null {
   if (key.gradeLabel) return null;
@@ -72,36 +64,49 @@ export function parsePptCard(body: unknown, key: Pick<Key, 'grader' | 'grade' | 
   for (const c of [card['currency'], ebay['currency']]) {
     if (c !== undefined && c !== null && (typeof c !== 'string' || c.toUpperCase() !== 'USD')) return null;
   }
+  const k = gradeKey(key);
   const byGrade = ebay['salesByGrade'];
-  let g: Record<string, unknown> | undefined;
-  for (const container of [byGrade, ebay]) {
-    if (!isObj(container)) continue;
-    const hit = gradeKeys(key).map((k) => container[k]).find(isObj);
-    if (hit) { g = hit; break; }
-  }
-  if (!g) return null;
-  const value = positive(g['medianPrice']) ? g['medianPrice'] : positive(g['averagePrice']) ? g['averagePrice'] : null;
-  if (value === null) return null;
-  const sales = count(g['salesCount']) ? g['salesCount'] : count(g['count']) ? g['count'] : null;
-  if (sales === null) return null;
+  const g = isObj(byGrade) ? byGrade[k] : undefined;
+  if (!isObj(g)) return null;
+  const outliers = ebay['smartPriceOutlierByGrade'];
+  if (isObj(outliers) && outliers[k] === true) return null;
+
+  const sm = g['smartMarketPrice'];
+  if (!isObj(sm)) return null;
+  const confidence = sm['confidence'];
+  const daysUsed = sm['daysUsed'];
+  const method = sm['method'];
+  if (confidence !== 'high' && confidence !== 'medium') return null;
+  if (!positive(sm['price'])) return null;
+  if (typeof daysUsed !== 'number' || !Number.isFinite(daysUsed) || daysUsed <= 0 || daysUsed > WINDOW_DAYS) return null;
+  if (typeof method !== 'string' || method.startsWith('all')) return null;
+  const median7 = g['marketPriceMedian7Day'];
+  const value = positive(median7) ? Math.min(sm['price'], median7) : sm['price'];
+
+  const lastSale = typeof g['lastSaleDate'] === 'string' ? new Date(g['lastSaleDate']) : null;
+  if (!lastSale || Number.isNaN(lastSale.getTime()) || ctx.now.getTime() - lastSale.getTime() > WINDOW_DAYS * 86_400_000) return null;
+
   const vol = g['dailyVolume7Day'];
-  const hasVol = typeof vol === 'number' && Number.isFinite(vol) && vol >= 0;
-  if (PPT_PARSER_VERSION === 'v0-unverified' && !hasVol) return null;
-  const saleCount = hasVol ? Math.min(sales, Math.round(vol * WINDOW_DAYS)) : sales;
-  const stamp = [card['lastUpdated'], card['updatedAt'], ebay['lastUpdated'], ebay['updatedAt']]
+  if (typeof vol !== 'number' || !Number.isFinite(vol) || vol < 0) return null;
+  let saleCount = Math.round(vol * 7);
+  // Judgment call: PPT's high-confidence smart price over <= 30 days stands in for a minimum count, so a thin 7 day
+  // volume on a card PPT still prices confidently is not discarded by the oracle's minCompCount gate.
+  if (confidence === 'high' && saleCount < 3) saleCount = 3;
+
+  const stamp = [g['lastMarketUpdate'], ebay['updatedAt']]
     .find((v): v is string => typeof v === 'string' && !Number.isNaN(new Date(v).getTime()));
   const asOf = stamp ? new Date(stamp) : (ctx.fetchedAt ?? ctx.now);
   if (ctx.now.getTime() - asOf.getTime() > MAX_STAMP_AGE_MS) return null;
-  const min = positive(g['minPrice']) ? g['minPrice'] : value;
-  const max = positive(g['maxPrice']) ? g['maxPrice'] : value;
+
+  const m7 = positive(g['marketPrice7Day']) ? g['marketPrice7Day'] : value;
+  const recency = daysUsed <= 7 ? 1 : daysUsed <= 14 ? 0.85 : 0.7;
   return {
     value,
-    low: Math.min(min, value),
-    high: Math.max(max, value),
+    low: Math.min(m7, value),
+    high: Math.max(m7, value),
     saleCount,
-    windowDays: WINDOW_DAYS,
-    // Same shape as poketrace's: 0.4 count, 0.3 recency (30d window = 0.7), 0.3 vendor term (fixed 0.7, no label here).
-    confidence: Math.round((0.4 * Math.min(1, saleCount / 8) + 0.3 * 0.7 + 0.3 * 0.7) * 1000) / 1000,
+    windowDays: daysUsed,
+    confidence: Math.round((0.4 * Math.min(1, saleCount / 8) + 0.3 * recency + 0.3 * (confidence === 'high' ? 1 : 0.7)) * 1000) / 1000,
     asOf,
     sourceName: 'ppt',
   };

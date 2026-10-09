@@ -1,0 +1,965 @@
+{
+ "data": {
+  "id": "696f652067063f37df81f2e4",
+  "tcgPlayerId": "246723",
+  "setId": 2848,
+  "setName": "SWSH07: Evolving Skies",
+  "name": "Umbreon VMAX (Alternate Art Secret)",
+  "cardNumber": "215/203",
+  "totalSetNumber": null,
+  "rarity": "Secret Rare",
+  "cardType": "Pokemon",
+  "pokedexNumbers": [
+   197
+  ],
+  "hp": "310",
+  "stage": "VMAX",
+  "attacks": [
+   "[2D] Max Darkness (160)"
+  ],
+  "weakness": "Gx2",
+  "resistance": "None",
+  "retreatCost": "2",
+  "artist": "KEIICHIRO ITO",
+  "pokemonType": "Darkness",
+  "energyType": [
+   "Darkness"
+  ],
+  "flavorText": null,
+  "tcgPlayerUrl": "https://www.tcgplayer.com/product/246723",
+  "prices": {
+   "market": 2351.42,
+   "low": 1499.99,
+   "sellers": 32,
+   "listings": 50,
+   "recentSales": 0,
+   "primaryPrinting": "Holofoil",
+   "lastUpdated": "2026-10-09T12:04:58.249Z",
+   "variants": {
+    "Holofoil": {
+     "Near Mint Holofoil": {
+      "price": 2351.42,
+      "listings": null,
+      "priceString": "$2351.42",
+      "lastUpdated": "2026-10-09T12:04:58.249Z"
+     }
+    }
+   }
+  },
+  "imageCdnUrl": "https://tcgplayer-cdn.tcgplayer.com/product/246723_in_800x800.jpg",
+  "imageCdnUrl200": "https://tcgplayer-cdn.tcgplayer.com/product/246723_in_200x200.jpg",
+  "imageCdnUrl400": "https://tcgplayer-cdn.tcgplayer.com/product/246723_in_400x400.jpg",
+  "imageCdnUrl800": "https://tcgplayer-cdn.tcgplayer.com/product/246723_in_800x800.jpg",
+  "imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/246723_in_200x200.jpg",
+  "needsDetailedScrape": false,
+  "dataCompleteness": "complete",
+  "lastScrapedAt": "2026-10-09T12:04:58.249Z",
+  "createdAt": "2026-01-20T11:21:04.355Z",
+  "updatedAt": "2026-10-09T12:14:52.405Z",
+  "variants": {
+   "Holofoil": {
+    "printing": "Holofoil",
+    "marketPrice": 2351.42,
+    "lowPrice": 1499.99,
+    "conditionUsed": "Near Mint Holofoil"
+   }
+  },
+  "printingsAvailable": [
+   "Holofoil"
+  ],
+  "externalCatalogId": "swsh7-215",
+  "ebay": {
+   "updatedAt": "2026-10-09T15:31:58.165Z",
+   "lastScrapedDate": "2026-10-09T06:41:29.812Z",
+   "lastEbayCheck": "2026-10-09T06:41:29.812Z",
+   "salesByGrade": {
+    "psa9": {
+     "count": 209,
+     "totalValue": 408571.68,
+     "averagePrice": 2002.8023529411764,
+     "medianPrice": 2000,
+     "minPrice": 1399.99,
+     "maxPrice": 2699.99,
+     "marketPrice7Day": 1925,
+     "marketPriceMedian7Day": 1925,
+     "dailyVolume7Day": 0.14285714285714285,
+     "marketTrend": "up",
+     "lastMarketUpdate": "2026-10-09T15:31:58.158Z",
+     "lastSaleDate": "2026-10-05T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 1962.5,
+      "confidence": "high",
+      "method": "14day_filtered_weighted",
+      "daysUsed": 14
+     },
+     "salesBySource": {
+      "ebay": 180,
+      "fanatics": 29
+     }
+    },
+    "cgc9": {
+     "count": 17,
+     "totalValue": 28920.99,
+     "averagePrice": 1807.561875,
+     "medianPrice": 1830,
+     "minPrice": 1230,
+     "maxPrice": 2500,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": "up",
+     "lastMarketUpdate": "2026-10-09T15:31:58.158Z",
+     "lastSaleDate": "2026-09-28T03:20:33.000Z",
+     "smartMarketPrice": {
+      "price": 1911,
+      "confidence": "medium",
+      "method": "30day_filtered_weighted",
+      "daysUsed": 30
+     },
+     "salesBySource": {
+      "ebay": 3,
+      "fanatics": 14
+     }
+    },
+    "psa8": {
+     "count": 31,
+     "totalValue": 53489.92,
+     "averagePrice": 1725.4812903225807,
+     "medianPrice": 1775,
+     "minPrice": 1125,
+     "maxPrice": 2200,
+     "marketPrice7Day": 1850,
+     "marketPriceMedian7Day": 1825,
+     "dailyVolume7Day": 0.42857142857142855,
+     "marketTrend": "up",
+     "lastMarketUpdate": "2026-10-09T15:31:58.158Z",
+     "lastSaleDate": "2026-10-06T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 1800,
+      "confidence": "medium",
+      "method": "7day_filtered_weighted",
+      "daysUsed": 7
+     },
+     "salesBySource": {
+      "ebay": 27,
+      "fanatics": 4
+     }
+    },
+    "psa10": {
+     "count": 699,
+     "totalValue": 2710309.47,
+     "averagePrice": 4021.230667655787,
+     "medianPrice": 4080,
+     "minPrice": 2190,
+     "maxPrice": 5760,
+     "marketPrice7Day": 3984.9852631578947,
+     "marketPriceMedian7Day": 3933,
+     "dailyVolume7Day": 2.7142857142857144,
+     "marketTrend": "up",
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-10-07T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 3873,
+      "confidence": "high",
+      "method": "7day_filtered_weighted",
+      "daysUsed": 7
+     },
+     "salesBySource": {
+      "ebay": 568,
+      "fanatics": 131
+     }
+    },
+    "bgs9_5": {
+     "count": 56,
+     "totalValue": 150164.48,
+     "averagePrice": 2833.2920754716984,
+     "medianPrice": 2950,
+     "minPrice": 1800,
+     "maxPrice": 4000,
+     "marketPrice7Day": 2995,
+     "marketPriceMedian7Day": 2995,
+     "dailyVolume7Day": 0.14285714285714285,
+     "marketTrend": "up",
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-10-06T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 2995,
+      "confidence": "medium",
+      "method": "30day_filtered_weighted",
+      "daysUsed": 30
+     },
+     "salesBySource": {
+      "ebay": 45,
+      "fanatics": 11
+     }
+    },
+    "bgs10": {
+     "count": 41,
+     "totalValue": 184917.49,
+     "averagePrice": 4866.249736842105,
+     "medianPrice": 4885,
+     "minPrice": 2053,
+     "maxPrice": 7225.95,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": "stable",
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-09-27T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 5394.48,
+      "confidence": "medium",
+      "method": "30day_filtered_weighted",
+      "daysUsed": 30
+     },
+     "salesBySource": {
+      "ebay": 19,
+      "fanatics": 22
+     }
+    },
+    "cgc10": {
+     "count": 77,
+     "totalValue": 250046.98,
+     "averagePrice": 3425.301095890411,
+     "medianPrice": 3359,
+     "minPrice": 1500,
+     "maxPrice": 5750,
+     "marketPrice7Day": 149,
+     "marketPriceMedian7Day": 149,
+     "dailyVolume7Day": 0.2857142857142857,
+     "marketTrend": "down",
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-10-08T20:31:31.000Z",
+     "smartMarketPrice": {
+      "price": 149,
+      "confidence": "low",
+      "method": "14day_filtered_weighted",
+      "daysUsed": 14
+     },
+     "salesBySource": {
+      "ebay": 48,
+      "fanatics": 29
+     }
+    },
+    "cgc9_5": {
+     "count": 8,
+     "totalValue": 17209.33,
+     "averagePrice": 2151.16625,
+     "medianPrice": 2088,
+     "minPrice": 1560,
+     "maxPrice": 3000,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": "up",
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-09-14T03:38:36.000Z",
+     "smartMarketPrice": {
+      "price": 2088,
+      "confidence": "medium",
+      "method": "90day_filtered_weighted",
+      "daysUsed": 90
+     },
+     "salesBySource": {
+      "ebay": 5,
+      "fanatics": 3
+     }
+    },
+    "tag10": {
+     "count": 14,
+     "totalValue": 56057.21,
+     "averagePrice": 4004.0864285714283,
+     "medianPrice": 4125.5,
+     "minPrice": 2300,
+     "maxPrice": 6400,
+     "marketPrice7Day": 3559,
+     "marketPriceMedian7Day": 3559,
+     "dailyVolume7Day": 0.14285714285714285,
+     "marketTrend": "up",
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-10-04T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 3559,
+      "confidence": "low",
+      "method": "30day_filtered_weighted",
+      "daysUsed": 30
+     },
+     "salesBySource": {
+      "ebay": 14
+     }
+    },
+    "bgs9": {
+     "count": 12,
+     "totalValue": 20853.72,
+     "averagePrice": 1895.7927272727275,
+     "medianPrice": 1945.16,
+     "minPrice": 1320.37,
+     "maxPrice": 2339,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": "stable",
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-09-30T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 1861.43,
+      "confidence": "medium",
+      "method": "30day_filtered_weighted",
+      "daysUsed": 30
+     },
+     "salesBySource": {
+      "ebay": 11,
+      "fanatics": 1
+     }
+    },
+    "psa1": {
+     "count": 5,
+     "totalValue": 5994,
+     "averagePrice": 1498.5,
+     "medianPrice": 1475,
+     "minPrice": 1345,
+     "maxPrice": 1699,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": "up",
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-09-10T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 1345,
+      "confidence": "low",
+      "method": "90day_filtered_weighted",
+      "daysUsed": 90
+     },
+     "salesBySource": {
+      "ebay": 5
+     }
+    },
+    "tag8_5": {
+     "count": 1,
+     "totalValue": 1800,
+     "averagePrice": 1800,
+     "medianPrice": 1800,
+     "minPrice": 1800,
+     "maxPrice": 1800,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": null,
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-02-19T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 1800,
+      "confidence": "low",
+      "method": "all_filtered_weighted",
+      "daysUsed": 232
+     },
+     "salesBySource": {
+      "ebay": 1
+     }
+    },
+    "sgc9": {
+     "count": 1,
+     "totalValue": 1700,
+     "averagePrice": 1700,
+     "medianPrice": 1700,
+     "minPrice": 1700,
+     "maxPrice": 1700,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": null,
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-03-07T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 1700,
+      "confidence": "low",
+      "method": "all_filtered_weighted",
+      "daysUsed": 216
+     },
+     "salesBySource": {
+      "ebay": 1
+     }
+    },
+    "psa2": {
+     "count": 2,
+     "totalValue": 2718.75,
+     "averagePrice": 1359.375,
+     "medianPrice": 1359.375,
+     "minPrice": 1218.75,
+     "maxPrice": 1500,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": null,
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-03-27T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 1218.75,
+      "confidence": "low",
+      "method": "all_filtered_weighted",
+      "daysUsed": 196
+     },
+     "salesBySource": {
+      "ebay": 2
+     }
+    },
+    "ace10": {
+     "count": 9,
+     "totalValue": 30311.54,
+     "averagePrice": 3367.948888888889,
+     "medianPrice": 3500,
+     "minPrice": 2688,
+     "maxPrice": 4062.59,
+     "marketPrice7Day": 2854.34,
+     "marketPriceMedian7Day": 2854.34,
+     "dailyVolume7Day": 0.14285714285714285,
+     "marketTrend": "down",
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-10-06T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 2791.44,
+      "confidence": "high",
+      "method": "90day_filtered_weighted",
+      "daysUsed": 90
+     },
+     "salesBySource": {
+      "ebay": 9
+     }
+    },
+    "ungraded": {
+     "count": 115,
+     "totalValue": 325598.84,
+     "averagePrice": 2856.130175438597,
+     "medianPrice": 3000,
+     "minPrice": 450,
+     "maxPrice": 5000,
+     "marketPrice7Day": 2000,
+     "marketPriceMedian7Day": 2000,
+     "dailyVolume7Day": 0.14285714285714285,
+     "marketTrend": "stable",
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-10-04T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 1700,
+      "confidence": "medium",
+      "method": "14day_filtered_weighted",
+      "daysUsed": 14
+     },
+     "salesBySource": {
+      "ebay": 115
+     }
+    },
+    "bgs7": {
+     "count": 1,
+     "totalValue": 1800,
+     "averagePrice": 1800,
+     "medianPrice": 1800,
+     "minPrice": 1800,
+     "maxPrice": 1800,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": null,
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-06-15T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 1800,
+      "confidence": "low",
+      "method": "all_filtered_weighted",
+      "daysUsed": 116
+     },
+     "salesBySource": {
+      "ebay": 1
+     }
+    },
+    "bgs8_5": {
+     "count": 1,
+     "totalValue": 2000,
+     "averagePrice": 2000,
+     "medianPrice": 2000,
+     "minPrice": 2000,
+     "maxPrice": 2000,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": null,
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-07-11T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 2000,
+      "confidence": "low",
+      "method": "all_filtered_weighted",
+      "daysUsed": 90
+     },
+     "salesBySource": {
+      "ebay": 1
+     }
+    },
+    "tag9": {
+     "count": 5,
+     "totalValue": 11674.99,
+     "averagePrice": 2334.998,
+     "medianPrice": 2499.99,
+     "minPrice": 2075,
+     "maxPrice": 2500,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": "stable",
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-09-17T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 2499.99,
+      "confidence": "medium",
+      "method": "90day_filtered_weighted",
+      "daysUsed": 90
+     },
+     "salesBySource": {
+      "ebay": 5
+     }
+    },
+    "bgs4_5": {
+     "count": 2,
+     "totalValue": 2510,
+     "averagePrice": 1255,
+     "medianPrice": 1255,
+     "minPrice": 1110,
+     "maxPrice": 1400,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": null,
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-07-18T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 1255,
+      "confidence": "low",
+      "method": "all_filtered_weighted",
+      "daysUsed": 242
+     },
+     "salesBySource": {
+      "ebay": 1,
+      "fanatics": 1
+     }
+    },
+    "psa4": {
+     "count": 3,
+     "totalValue": 3945,
+     "averagePrice": 1315,
+     "medianPrice": 1300,
+     "minPrice": 1235,
+     "maxPrice": 1410,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": "down",
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-07-27T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 1105,
+      "confidence": "low",
+      "method": "all_filtered_weighted",
+      "daysUsed": 116
+     },
+     "salesBySource": {
+      "ebay": 2,
+      "fanatics": 1
+     }
+    },
+    "psa5": {
+     "count": 3,
+     "totalValue": 4649.99,
+     "averagePrice": 1549.9966666666667,
+     "medianPrice": 1395,
+     "minPrice": 1395,
+     "maxPrice": 1859.99,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": "up",
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-10-02T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 1627.49,
+      "confidence": "medium",
+      "method": "90day_filtered_weighted",
+      "daysUsed": 90
+     },
+     "salesBySource": {
+      "ebay": 3
+     }
+    },
+    "psa3": {
+     "count": 2,
+     "totalValue": 2200,
+     "averagePrice": 1100,
+     "medianPrice": 1100,
+     "minPrice": 1025,
+     "maxPrice": 1175,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": null,
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-09-03T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 1025,
+      "confidence": "low",
+      "method": "90day_filtered_weighted",
+      "daysUsed": 90
+     },
+     "salesBySource": {
+      "ebay": 2
+     }
+    },
+    "psa7": {
+     "count": 2,
+     "totalValue": 3850,
+     "averagePrice": 1925,
+     "medianPrice": 1925,
+     "minPrice": 1850,
+     "maxPrice": 2000,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": null,
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-09-02T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 1925,
+      "confidence": "low",
+      "method": "all_filtered_weighted",
+      "daysUsed": 94
+     },
+     "salesBySource": {
+      "ebay": 2
+     }
+    },
+    "psa6": {
+     "count": 2,
+     "totalValue": 2977,
+     "averagePrice": 1488.5,
+     "medianPrice": 1488.5,
+     "minPrice": 1452,
+     "maxPrice": 1525,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": null,
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-07-02T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 1488.5,
+      "confidence": "low",
+      "method": "all_filtered_weighted",
+      "daysUsed": 100
+     },
+     "salesBySource": {
+      "ebay": 2
+     }
+    },
+    "psa8_5": {
+     "count": 1,
+     "totalValue": 2150,
+     "averagePrice": 2150,
+     "medianPrice": 2150,
+     "minPrice": 2150,
+     "maxPrice": 2150,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": null,
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-08-06T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 2150,
+      "confidence": "low",
+      "method": "all_filtered_weighted",
+      "daysUsed": 64
+     },
+     "salesBySource": {
+      "ebay": 1
+     }
+    },
+    "sgc10": {
+     "count": 2,
+     "totalValue": 3000,
+     "averagePrice": 1500,
+     "medianPrice": 1500,
+     "minPrice": 300,
+     "maxPrice": 2700,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": null,
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-09-29T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 300,
+      "confidence": "low",
+      "method": "30day_filtered_weighted",
+      "daysUsed": 30
+     },
+     "salesBySource": {
+      "ebay": 2
+     }
+    },
+    "cgc7": {
+     "count": 1,
+     "totalValue": 1660,
+     "averagePrice": 1660,
+     "medianPrice": 1660,
+     "minPrice": 1660,
+     "maxPrice": 1660,
+     "marketPrice7Day": 1660,
+     "marketPriceMedian7Day": 1660,
+     "dailyVolume7Day": 0.14285714285714285,
+     "marketTrend": null,
+     "lastMarketUpdate": "2026-10-09T15:31:58.159Z",
+     "lastSaleDate": "2026-10-04T00:00:00.000Z",
+     "smartMarketPrice": {
+      "price": 1660,
+      "confidence": "low",
+      "method": "all_filtered_weighted",
+      "daysUsed": 5
+     },
+     "salesBySource": {
+      "ebay": 1
+     }
+    },
+    "cgc8_5": {
+     "count": 2,
+     "totalValue": 3180,
+     "averagePrice": 1590,
+     "medianPrice": 1590,
+     "minPrice": 1350,
+     "maxPrice": 1830,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": null,
+     "lastMarketUpdate": "2026-10-09T15:31:58.160Z",
+     "lastSaleDate": "2026-07-20T03:39:27.000Z",
+     "smartMarketPrice": {
+      "price": 1350,
+      "confidence": "low",
+      "method": "all_filtered_weighted",
+      "daysUsed": 144
+     },
+     "salesBySource": {
+      "fanatics": 2
+     }
+    },
+    "cgc6_5": {
+     "count": 1,
+     "totalValue": 1800,
+     "averagePrice": 1800,
+     "medianPrice": 1800,
+     "minPrice": 1800,
+     "maxPrice": 1800,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": null,
+     "lastMarketUpdate": "2026-10-09T15:31:58.160Z",
+     "lastSaleDate": "2026-05-18T03:22:15.000Z",
+     "smartMarketPrice": {
+      "price": 1800,
+      "confidence": "low",
+      "method": "all_filtered_weighted",
+      "daysUsed": 144
+     },
+     "salesBySource": {
+      "fanatics": 1
+     }
+    },
+    "cgc9_6": {
+     "count": 2,
+     "totalValue": 3800,
+     "averagePrice": 1900,
+     "medianPrice": 1900,
+     "minPrice": 1750,
+     "maxPrice": 2050,
+     "marketPrice7Day": null,
+     "marketPriceMedian7Day": null,
+     "dailyVolume7Day": 0,
+     "marketTrend": null,
+     "lastMarketUpdate": "2026-10-09T15:31:58.160Z",
+     "lastSaleDate": "2026-05-04T01:03:41.000Z",
+     "smartMarketPrice": {
+      "price": 1900,
+      "confidence": "low",
+      "method": "all_filtered_weighted",
+      "daysUsed": 267
+     },
+     "salesBySource": {
+      "fanatics": 2
+     }
+    }
+   },
+   "smartPriceOutlierByGrade": {
+    "psa9": false,
+    "cgc9": false,
+    "psa8": false,
+    "psa10": false,
+    "bgs9_5": false,
+    "bgs10": false,
+    "cgc10": true,
+    "cgc9_5": false,
+    "tag10": false,
+    "bgs9": false,
+    "psa1": false,
+    "tag8_5": false,
+    "sgc9": false,
+    "psa2": false,
+    "ace10": false,
+    "ungraded": false,
+    "bgs7": false,
+    "bgs8_5": false,
+    "tag9": false,
+    "bgs4_5": false,
+    "psa4": false,
+    "psa5": false,
+    "psa3": false,
+    "psa7": false,
+    "psa6": false,
+    "psa8_5": false,
+    "sgc10": true,
+    "cgc7": false,
+    "cgc8_5": false,
+    "cgc6_5": false,
+    "cgc9_6": false
+   },
+   "salesVelocity": {
+    "dailyAverage": 3.3333333333333335,
+    "weeklyAverage": 23.255813953488374,
+    "monthlyTotal": 100
+   },
+   "priceHistory": {
+    "psa9": {},
+    "cgc9": {},
+    "psa8": {},
+    "psa10": {
+     "2026-10-07": {
+      "average": 3802,
+      "count": 1,
+      "totalValue": 3802,
+      "sevenDayAverage": 3995.8950000000004,
+      "sevenDayVolumeAvg": 5.428571428571429,
+      "sevenDayValueAvg": 21692.00142857143,
+      "rollingWindow": null
+     }
+    },
+    "bgs9_5": {},
+    "bgs10": {},
+    "cgc10": {
+     "2026-10-08": {
+      "average": 76,
+      "count": 1,
+      "totalValue": 76,
+      "sevenDayAverage": 3520.557777777778,
+      "sevenDayVolumeAvg": 1.2857142857142858,
+      "sevenDayValueAvg": 4526.431428571429,
+      "rollingWindow": null
+     }
+    },
+    "cgc9_5": {},
+    "tag10": {},
+    "bgs9": {},
+    "psa1": {},
+    "tag8_5": {},
+    "sgc9": {},
+    "psa2": {},
+    "ace10": {},
+    "bgs7": {},
+    "bgs8_5": {},
+    "tag9": {},
+    "bgs4_5": {},
+    "psa4": {},
+    "psa5": {},
+    "psa3": {},
+    "psa7": {},
+    "psa6": {},
+    "psa8_5": {},
+    "sgc10": {},
+    "cgc7": {},
+    "cgc8_5": {},
+    "cgc6_5": {},
+    "cgc9_6": {}
+   },
+   "totalSales": 1327,
+   "totalValue": 4299861.380000001,
+   "gradesTracked": [
+    "psa9",
+    "cgc9",
+    "psa8",
+    "psa10",
+    "bgs9_5",
+    "bgs10",
+    "cgc10",
+    "cgc9_5",
+    "tag10",
+    "bgs9",
+    "psa1",
+    "tag8_5",
+    "sgc9",
+    "psa2",
+    "ace10",
+    "ungraded",
+    "bgs7",
+    "bgs8_5",
+    "tag9",
+    "bgs4_5",
+    "psa4",
+    "psa5",
+    "psa3",
+    "psa7",
+    "psa6",
+    "psa8_5",
+    "sgc10",
+    "cgc7",
+    "cgc8_5",
+    "cgc6_5",
+    "cgc9_6"
+   ],
+   "dateRangeStart": "2022-12-17T00:00:00.000Z",
+   "dateRangeEnd": "2026-10-08T00:00:00.000Z"
+  }
+ },
+ "metadata": {
+  "total": 1,
+  "count": 1,
+  "limit": 1,
+  "offset": 0,
+  "hasMore": false,
+  "language": "english",
+  "includes": {
+   "priceHistory": false,
+   "ebayData": true,
+   "cardmarketData": false
+  },
+  "historyWindow": {
+   "days": 3,
+   "from": "2026-10-06",
+   "to": "2026-10-09",
+   "maxDataPoints": 30,
+   "granularityNote": "Data points limited to 30. Use ?maxDataPoints=N for higher granularity (plan limits apply)."
+  },
+  "apiCallsConsumed": {
+   "total": 2,
+   "breakdown": {
+    "cards": 1,
+    "history": 0,
+    "ebay": 1,
+    "cardmarket": 0
+   },
+   "costPerCard": 2
+  },
+  "planRestrictions": {
+   "message": "Free plan limited to 3 days of historical data. Upgrade to API plan for full history access.",
+   "limitedTo": "3 days",
+   "maxDataPoints": 30
+  }
+ }
+}

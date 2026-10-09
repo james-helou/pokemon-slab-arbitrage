@@ -75,10 +75,10 @@ describe('buildOracleDeps ppt mode', () => {
     expect(h.lines.map((l) => l.msg)).toEqual(['comps source: ppt']);
   });
 
-  it('refuses ppt at boot while the parser is unverified and PPT_PARSER_ACK is not set', async () => {
+  it('boots without PPT_PARSER_ACK now that the parser is verified (the gate only applies to v0-unverified)', async () => {
     const h = await harness();
-    await expect(buildOracleDeps(loadConfig({ ...ENV, COMPS_SOURCE: 'ppt', PPT_API_KEY: 'ppt-s3cret' }), h.deps))
-      .rejects.toThrow(/ppt:probe.*PPT_PARSER_ACK/s);
+    const o = await buildOracleDeps(loadConfig({ ...ENV, COMPS_SOURCE: 'ppt', PPT_API_KEY: 'ppt-s3cret' }), h.deps);
+    expect(o.aggregate).toBeDefined();
   });
 
   it('reads pptDailyCredits from settings at call time', async () => {

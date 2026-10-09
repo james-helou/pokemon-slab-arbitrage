@@ -1,7 +1,8 @@
+import { readFileSync } from 'node:fs';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '../../src/db/db.js';
 import { PptHttpError, PptUnavailableError, type PptClient } from '../../src/ppt/client.js';
-import { parsePptCard, pptAggregateSource, reservePptCredits } from '../../src/ppt/aggregate-source.js';
+import { parsePptCard, pptAggregateSource, reservePptCredits, type ParseCtx } from '../../src/ppt/aggregate-source.js';
 import { createTestDb } from '../helpers/test-db.js';
 
 const NOW = new Date('2026-10-09T12:00:00Z');
@@ -14,7 +15,16 @@ const tcgdexOk = (ids: (number | string)[] = [555]) =>
 const card = (ebay: Record<string, unknown>, over: Record<string, unknown> = {}) => ({
   data: [{ tcgPlayerId: '555', name: 'X', ebay, ...over }],
 });
-const grade = (over: Record<string, unknown> = {}) => ({ medianPrice: 300, averagePrice: 310, salesCount: 12, dailyVolume7Day: 5, ...over });
+const smart = (price: number, over: Record<string, unknown> = {}) => ({
+  price, confidence: 'high', method: '7day_filtered_weighted', daysUsed: 7, ...over,
+});
+/** Verified v1.0.0 shape. medianPrice/count are LIFETIME fields and must never drive the result (poisoned here on purpose). */
+const grade = (over: Record<string, unknown> = {}) => ({
+  count: 699, medianPrice: 9999, averagePrice: 9999, minPrice: 1, maxPrice: 99999,
+  marketPrice7Day: 305, marketPriceMedian7Day: 310, dailyVolume7Day: 2,
+  lastSaleDate: '2026-10-08T00:00:00.000Z', lastMarketUpdate: '2026-10-09T10:00:00.000Z',
+  smartMarketPrice: smart(300), ...over,
+});
 
 // One PGlite for the file (building one per test dominated the runtime); tables are emptied before each test.
 let shared: Db;
@@ -79,13 +89,13 @@ describe('pptAggregateSource', () => {
     const { src, db, calls } = await setup();
     const a = await src.fetchAggregate(KEY);
     expect(calls).toEqual([{ path: '/cards', query: { tcgPlayerId: '555', includeEbay: 'true', days: '30' } }]);
-    expect(a).toMatchObject({ value: 300, saleCount: 12, windowDays: 30, sourceName: 'ppt', asOf: NOW });
-    expect(a!.confidence).toBeCloseTo(0.4 * 1 + 0.21 + 0.21, 3);
+    expect(a).toMatchObject({ value: 300, saleCount: 14, windowDays: 7, sourceName: 'ppt', asOf: new Date('2026-10-09T10:00:00Z') });
+    expect(a!.confidence).toBeCloseTo(1, 3);
     expect((await used(db))[0]!.credits).toBe(2);
   });
 
   it('a fresh positive cache row serves every grade without spending or calling', async () => {
-    const body = card({ salesByGrade: { psa10: grade(), psa9: grade({ medianPrice: 90 }) } });
+    const body = card({ salesByGrade: { psa10: grade(), psa9: grade({ smartMarketPrice: smart(90) }) } });
     const { src, db, calls, tcgdexCalls } = await setup({ body });
     await src.fetchAggregate(KEY);
     expect(await src.fetchAggregate({ ...KEY, grade: 9 })).toMatchObject({ value: 90 });
@@ -210,7 +220,7 @@ describe('pptAggregateSource review fixes', () => {
     const fetchedAt = new Date(NOW.getTime() - 20 * 3_600_000);
     await db.query(
       `insert into vendor_card_cache (provider, card_id, fetched_at, body) values ('ppt', $1, $2, $3::jsonb)`,
-      [KEY.cardId, fetchedAt, JSON.stringify({ tcgplayerId: '555', response: card({ salesByGrade: { psa10: grade() } }) })],
+      [KEY.cardId, fetchedAt, JSON.stringify({ tcgplayerId: '555', response: card({ salesByGrade: { psa10: grade({ lastMarketUpdate: undefined }) } }) })],
     );
     expect((await src.fetchAggregate(KEY))!.asOf).toEqual(fetchedAt);
   });
@@ -256,82 +266,130 @@ describe('pptAggregateSource review fixes', () => {
 });
 
 describe('parsePptCard', () => {
-  const P = (body: unknown, key: Parameters<typeof parsePptCard>[1] = KEY) => parsePptCard(body, key, { now: NOW, tcgplayerId: '555' });
+  const CTX: ParseCtx = { now: NOW, tcgplayerId: '555' };
+  const P = (body: unknown, key: Parameters<typeof parsePptCard>[1] = KEY, ctx = CTX) => parsePptCard(body, key, ctx);
+  const c10 = (over: Record<string, unknown> = {}, ebayExtra: Record<string, unknown> = {}, cardExtra: Record<string, unknown> = {}) =>
+    card({ salesByGrade: { psa10: grade(over) }, ...ebayExtra }, cardExtra);
 
-  it('parses both key styles under ebay.salesByGrade and ebay', () => {
-    expect(P(card({ salesByGrade: { psa10: grade() } }))).toMatchObject({ value: 300 });
-    expect(P(card({ salesByGrade: { PSA10: grade() } }))).toMatchObject({ value: 300 });
-    expect(P(card({ psa_10: grade() }))).toMatchObject({ value: 300 });
-    expect(P(card({ PSA_10: grade() }))).toMatchObject({ value: 300 });
-    expect(P(card({ salesByGrade: { psa9_5: grade({ medianPrice: 150 }) } }), { ...KEY, grade: 9.5 })).toMatchObject({ value: 150 });
-    expect(P(card({ 'PSA9.5': grade({ medianPrice: 151 }) }), { ...KEY, grade: 9.5 })).toMatchObject({ value: 151 });
+  it('uses only lowercase grader+grade keys under ebay.salesByGrade, decimals as _', () => {
+    expect(P(c10())).toMatchObject({ value: 300 });
+    expect(P(card({ salesByGrade: { psa8_5: grade({ smartMarketPrice: smart(80) }) } }), { ...KEY, grade: 8.5 })).toMatchObject({ value: 80 });
+    expect(P(card({ salesByGrade: { bgs9_5: grade() } }), { ...KEY, grader: 'BGS', grade: 9.5 })).toMatchObject({ value: 300 });
+    expect(P(card({ salesByGrade: { PSA10: grade() } }))).toBeNull();
+    expect(P(card({ salesByGrade: { psa_10: grade() } }))).toBeNull();
+    expect(P(card({ psa10: grade() }))).toBeNull();
   });
 
-  it('accepts a bare data object and uses a different grader prefix', () => {
-    const body = { data: { tcgPlayerId: 555, ebay: { salesByGrade: { bgs9_5: grade() } } } };
-    expect(P(body, { ...KEY, grader: 'BGS', grade: 9.5 })).toMatchObject({ value: 300 });
-    expect(P(body)).toBeNull();
+  it('takes the value from smartMarketPrice, lowered to marketPriceMedian7Day when that is lower, never lifetime fields', () => {
+    expect(P(c10())).toMatchObject({ value: 300, saleCount: 14, windowDays: 7 });
+    expect(P(c10({ smartMarketPrice: smart(400) }))).toMatchObject({ value: 310 });
+    expect(P(c10({ marketPriceMedian7Day: null }))).toMatchObject({ value: 300 });
+    expect(P(c10({ marketPriceMedian7Day: 0 }))).toMatchObject({ value: 300 });
   });
 
-  it('falls back to averagePrice and rejects non-positive or invalid values', () => {
-    expect(P(card({ salesByGrade: { psa10: grade({ medianPrice: undefined }) } }))).toMatchObject({ value: 310 });
-    expect(P(card({ salesByGrade: { psa10: grade({ medianPrice: 0, averagePrice: 0 }) } }))).toBeNull();
-    expect(P(card({ salesByGrade: { psa10: grade({ medianPrice: 'x', averagePrice: null }) } }))).toBeNull();
-    expect(P(card({ salesByGrade: { psa10: { medianPrice: 300 } } }))).toBeNull();
+  it('smart price gates: confidence, positive price, daysUsed <= 30, method not all_*', () => {
+    expect(P(c10({ smartMarketPrice: smart(300, { confidence: 'low' }) }))).toBeNull();
+    expect(P(c10({ smartMarketPrice: smart(300, { confidence: 'medium' }) }))).not.toBeNull();
+    expect(P(c10({ smartMarketPrice: smart(0) }))).toBeNull();
+    expect(P(c10({ smartMarketPrice: smart(300, { daysUsed: 31 }) }))).toBeNull();
+    expect(P(c10({ smartMarketPrice: smart(300, { daysUsed: '7' }) }))).toBeNull();
+    expect(P(c10({ smartMarketPrice: smart(300, { daysUsed: 30 }) }))).toMatchObject({ windowDays: 30 });
+    expect(P(c10({ smartMarketPrice: smart(300, { method: 'all_filtered_weighted' }) }))).toBeNull();
+    expect(P(c10({ smartMarketPrice: undefined }))).toBeNull();
+    expect(P(c10({ smartMarketPrice: null }))).toBeNull();
+  });
+
+  it('smartPriceOutlierByGrade true is null', () => {
+    expect(P(c10({}, { smartPriceOutlierByGrade: { psa10: true } }))).toBeNull();
+    expect(P(c10({}, { smartPriceOutlierByGrade: { psa10: false } }))).not.toBeNull();
+  });
+
+  it('lastSaleDate must parse and be within 30 days', () => {
+    expect(P(c10({ lastSaleDate: '2026-08-06T00:00:00.000Z' }))).toBeNull();
+    expect(P(c10({ lastSaleDate: 'garbage' }))).toBeNull();
+    expect(P(c10({ lastSaleDate: undefined }))).toBeNull();
+    expect(P(c10({ lastSaleDate: '2026-09-10T00:00:00.000Z' }))).not.toBeNull();
+  });
+
+  it('saleCount is round(dailyVolume7Day * 7); high confidence is raised to 3, medium is not', () => {
+    expect(P(c10({ dailyVolume7Day: 19 / 7 }))).toMatchObject({ saleCount: 19 });
+    expect(P(c10({ dailyVolume7Day: 1 / 7 }))).toMatchObject({ saleCount: 3 });
+    expect(P(c10({ dailyVolume7Day: 0 }))).toMatchObject({ saleCount: 3 });
+    expect(P(c10({ dailyVolume7Day: 1 / 7, smartMarketPrice: smart(300, { confidence: 'medium' }) }))).toMatchObject({ saleCount: 1 });
+    expect(P(c10({ dailyVolume7Day: undefined }))).toBeNull();
+    expect(P(c10({ dailyVolume7Day: -1 }))).toBeNull();
+    expect(P(c10({ dailyVolume7Day: 'x' }))).toBeNull();
+  });
+
+  it('low/high bracket the value using marketPrice7Day, not lifetime min/max', () => {
+    expect(P(c10({ marketPrice7Day: 350 }))).toMatchObject({ low: 300, high: 350 });
+    expect(P(c10({ marketPrice7Day: 250 }))).toMatchObject({ low: 250, high: 300 });
+    expect(P(c10({ marketPrice7Day: null }))).toMatchObject({ low: 300, high: 300 });
+  });
+
+  it('confidence: 0.4 count + 0.3 recency by daysUsed + 0.3 smart confidence', () => {
+    const conf = (n: number, daysUsed: number, confidence: string) =>
+      P(c10({ dailyVolume7Day: n / 7, smartMarketPrice: smart(300, { daysUsed, confidence }) }))!.confidence;
+    expect(conf(8, 7, 'high')).toBeCloseTo(1, 3);
+    expect(conf(4, 14, 'medium')).toBeCloseTo(0.2 + 0.255 + 0.21, 3);
+    expect(conf(8, 30, 'high')).toBeCloseTo(0.4 + 0.21 + 0.3, 3);
+  });
+
+  it('asOf: grade.lastMarketUpdate, else ebay.updatedAt, else fetchedAt, else now; older than 72h is null', () => {
+    expect(P(c10())!.asOf).toEqual(new Date('2026-10-09T10:00:00Z'));
+    const noStamp = { lastMarketUpdate: undefined };
+    expect(P(c10(noStamp, { updatedAt: '2026-10-08T00:00:00Z' }))!.asOf).toEqual(new Date('2026-10-08T00:00:00Z'));
+    expect(P(c10(noStamp))!.asOf).toEqual(NOW);
+    const fetchedAt = new Date('2026-10-09T01:00:00Z');
+    expect(P(c10(noStamp), KEY, { ...CTX, fetchedAt })!.asOf).toEqual(fetchedAt);
+    expect(P(c10({ lastMarketUpdate: '2026-10-06T11:00:00Z' }))).toBeNull();
+    expect(P(c10({ lastMarketUpdate: '2026-10-07T13:00:00Z' }))).not.toBeNull();
+  });
+
+  it('requires a single card whose tcgPlayerId matches the requested id', () => {
+    const g = { salesByGrade: { psa10: grade() } };
+    expect(P({ data: { ebay: g } })).toBeNull();
+    expect(P({ data: { tcgPlayerId: '556', ebay: g } })).toBeNull();
+    expect(P({ data: { tcgPlayerId: '555', ebay: g } })).toMatchObject({ value: 300 });
+    expect(P({ data: [{ tcgPlayerId: '555', ebay: g }] })).toMatchObject({ value: 300 });
+    expect(P({ data: [{ tcgPlayerId: '555', ebay: g }, { tcgPlayerId: '555', ebay: g }] })).toBeNull();
     expect(P(null)).toBeNull();
     expect(P({ data: [] })).toBeNull();
   });
 
-  it('uses count when salesCount is absent', () => {
-    expect(P(card({ salesByGrade: { psa10: grade({ salesCount: undefined, count: 7 }) } }))).toMatchObject({ saleCount: 7 });
-  });
-
-  it('clamps a lifetime salesCount by dailyVolume7Day * 30', () => {
-    const a = P(card({ salesByGrade: { psa10: grade({ salesCount: 400, dailyVolume7Day: 0.2 }) } }));
-    expect(a).toMatchObject({ saleCount: 6 });
-    const b = P(card({ salesByGrade: { psa10: grade({ salesCount: 4, dailyVolume7Day: 5 }) } }));
-    expect(b).toMatchObject({ saleCount: 4 });
-  });
-
-  it('takes asOf from a parseable lastUpdated/updatedAt, else now', () => {
-    expect(P(card({ salesByGrade: { psa10: grade() } }, { lastUpdated: '2026-10-08T00:00:00Z' }))!.asOf)
-      .toEqual(new Date('2026-10-08T00:00:00Z'));
-    expect(P(card({ salesByGrade: { psa10: grade() } }, { updatedAt: '2026-10-07T00:00:00Z' }))!.asOf)
-      .toEqual(new Date('2026-10-07T00:00:00Z'));
-    expect(P(card({ salesByGrade: { psa10: grade() } }, { lastUpdated: 'garbage' }))!.asOf).toEqual(NOW);
+  it('rejects a non-USD currency, accepts USD or none', () => {
+    expect(P(c10({}, {}, { currency: 'CAD' }))).toBeNull();
+    expect(P(c10({}, { currency: 'EUR' }))).toBeNull();
+    expect(P(c10({}, {}, { currency: 'usd' }))).not.toBeNull();
   });
 
   it('is null for labelled grades', () => {
     expect(P(card({ salesByGrade: { bgs10: grade() } }), { ...KEY, grader: 'BGS', grade: 10, gradeLabel: 'pristine' })).toBeNull();
   });
 
-  it('requires an identity field matching the requested id (any known field name, string compare)', () => {
-    const g = { salesByGrade: { psa10: grade() } };
-    expect(P({ data: [{ ebay: g }] })).toBeNull();
-    expect(P({ data: [{ tcgPlayerId: '556', ebay: g }] })).toBeNull();
-    for (const f of ['tcgPlayerId', 'tcgplayerId', 'tcgPlayerID', 'tcgplayer_id']) {
-      expect(P({ data: [{ [f]: 555, ebay: g }] })).toMatchObject({ value: 300 });
-    }
-  });
+  describe('verified real response (swsh7-215 Umbreon VMAX, 2026-10-09)', () => {
+    const real = JSON.parse(readFileSync('tests/fixtures/ppt/swsh7-215-umbreon-vmax-2026-10-09.json', 'utf8')) as unknown;
+    const R = (grade: number, grader: 'PSA' | 'BGS' | 'CGC' = 'PSA') =>
+      parsePptCard(real, { grader, grade }, { now: new Date('2026-10-09T16:00:00Z'), tcgplayerId: '246723' });
 
-  it('requires a finite dailyVolume7Day while the parser is unverified', () => {
-    expect(P(card({ salesByGrade: { psa10: grade({ dailyVolume7Day: undefined }) } }))).toBeNull();
-    expect(P(card({ salesByGrade: { psa10: grade({ dailyVolume7Day: 'x' }) } }))).toBeNull();
-  });
-
-  it('rejects a stamp older than 72h but accepts one inside it', () => {
-    expect(P(card({ salesByGrade: { psa10: grade() } }, { lastUpdated: '2026-10-06T11:00:00Z' }))).toBeNull();
-    expect(P(card({ salesByGrade: { psa10: grade() } }, { lastUpdated: '2026-10-07T13:00:00Z' }))).not.toBeNull();
-  });
-
-  it('rejects a non-USD currency on the card or ebay object, accepts USD', () => {
-    expect(P(card({ salesByGrade: { psa10: grade() } }, { currency: 'CAD' }))).toBeNull();
-    expect(P(card({ currency: 'EUR', salesByGrade: { psa10: grade() } }))).toBeNull();
-    expect(P(card({ salesByGrade: { psa10: grade() } }, { currency: 'usd' }))).not.toBeNull();
-  });
-
-  it('low/high bracket the value', () => {
-    expect(P(card({ salesByGrade: { psa10: grade({ minPrice: 350, maxPrice: 250 }) } }))).toMatchObject({ low: 300, high: 300 });
-    expect(P(card({ salesByGrade: { psa10: grade({ minPrice: 200, maxPrice: 400 }) } }))).toMatchObject({ low: 200, high: 400 });
+    it('PSA 10: min(smart 3873, median7d 3933), 19 sales, 7 day window, high confidence', () => {
+      expect(R(10)).toMatchObject({ value: 3873, saleCount: 19, windowDays: 7, sourceName: 'ppt' });
+    });
+    it('PSA 9: min(1962.5, 1925), 1 sale raised to 3, 14 day window', () => {
+      expect(R(9)).toMatchObject({ value: 1925, saleCount: 3, windowDays: 14 });
+    });
+    it('PSA 8: medium smart 1800 vs median7d 1825 gives 1800, saleCount 3', () => {
+      expect(R(8)).toMatchObject({ value: 1800, saleCount: 3 });
+    });
+    it('PSA 8.5 (one stale lifetime sale, low confidence all_ method) and absent PSA 9.5 are null', () => {
+      expect(R(8.5)).toBeNull();
+      expect(R(9.5)).toBeNull();
+    });
+    it('a grade flagged as a smart price outlier is null', () => {
+      expect(R(10, 'CGC')).toBeNull();
+    });
+    it('the wrong requested id is null', () => {
+      expect(parsePptCard(real, { grader: 'PSA', grade: 10 }, { now: NOW, tcgplayerId: '1' })).toBeNull();
+    });
   });
 });
