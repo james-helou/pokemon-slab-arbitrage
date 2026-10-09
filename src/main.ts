@@ -40,6 +40,9 @@ async function main() {
   const ebay = createEbayClient({
     clientId: cfg.EBAY_CLIENT_ID, clientSecret: cfg.EBAY_CLIENT_SECRET, fetchFn: fetch, now,
     categoryIds: cfg.EBAY_CATEGORY_IDS, query: cfg.EBAY_QUERY, minPrice: cfg.EBAY_MIN_PRICE, budget,
+    ...(cfg.EBAY_BUYER_COUNTRY
+      ? { buyerLocation: { country: cfg.EBAY_BUYER_COUNTRY, ...(cfg.EBAY_BUYER_POSTAL_CODE ? { postalCode: cfg.EBAY_BUYER_POSTAL_CODE } : {}) } }
+      : {}),
   });
   // COMPS_SOURCE picks fixture (sample comps) or poketrace (aggregates + own DB comps, fixture excluded).
   const oracle = await buildOracleDeps(cfg, { db, now, log, fetch });

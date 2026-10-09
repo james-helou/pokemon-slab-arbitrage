@@ -20,11 +20,24 @@ function fakeEbayFetch(routes: { search?: unknown; item?: Response }) {
 
 const noBudget: Budget = { limit: 5000, beforeCall: async () => {}, usedToday: async () => 0 };
 
-function client(fetchFn: typeof fetch, budget: Budget = noBudget) {
+function client(fetchFn: typeof fetch, budget: Budget = noBudget, buyerLocation?: { country: string; postalCode?: string }) {
   return createEbayClient({
     clientId: 'id', clientSecret: 'secret', fetchFn, now: () => NOW,
     categoryIds: '183454', query: 'pokemon', minPrice: 25, budget,
+    ...(buyerLocation ? { buyerLocation } : {}),
   });
+}
+
+/** Records the headers of every non-token request alongside the url. */
+function recordingFetch() {
+  const reqs: { url: string; headers: Record<string, string> }[] = [];
+  const fn = (async (url: string, init?: RequestInit) => {
+    if (url.includes('/oauth2/token')) return new Response(JSON.stringify({ access_token: 'tok', expires_in: 7200 }));
+    reqs.push({ url, headers: { ...(init?.headers as Record<string, string>) } });
+    if (url.includes('/item_summary/search')) return new Response(JSON.stringify({ itemSummaries: [SUMMARY] }));
+    return new Response(JSON.stringify(ITEM));
+  }) as unknown as typeof fetch;
+  return { fn, reqs };
 }
 
 describe('eBay client', () => {
@@ -39,6 +52,41 @@ describe('eBay client', () => {
     expect(search.searchParams.get('filter')).toBe(
       'buyingOptions:{FIXED_PRICE},conditionIds:{2750},price:[25..],priceCurrency:USD',
     );
+  });
+
+  it('adds the encoded buyer-location header and deliveryCountry filter on search and getItem', async () => {
+    const f = recordingFetch();
+    const c = client(f.fn, noBudget, { country: 'CA', postalCode: 'H7T2W7' });
+    await c.searchNewGraded();
+    await c.getItem('v1|111|0');
+    const expected = `contextualLocation=${encodeURIComponent('country=CA,zip=H7T2W7')}`;
+    expect(expected).toBe('contextualLocation=country%3DCA%2Czip%3DH7T2W7');
+    expect(f.reqs).toHaveLength(2);
+    for (const r of f.reqs) {
+      expect(r.headers['X-EBAY-C-ENDUSERCTX']).toBe(expected);
+      expect(r.headers['X-EBAY-C-MARKETPLACE-ID']).toBe('EBAY_US');
+    }
+    const filter = new URL(f.reqs[0]!.url).searchParams.get('filter');
+    expect(filter).toBe(
+      'buyingOptions:{FIXED_PRICE},conditionIds:{2750},price:[25..],priceCurrency:USD,deliveryCountry:CA',
+    );
+  });
+
+  it('omits the zip from the header when the buyer has no postal code', async () => {
+    const f = recordingFetch();
+    await client(f.fn, noBudget, { country: 'CA' }).getItem('v1|111|0');
+    expect(f.reqs[0]!.headers['X-EBAY-C-ENDUSERCTX']).toBe('contextualLocation=country%3DCA');
+  });
+
+  it('sends no location header and no deliveryCountry filter when unset', async () => {
+    const f = recordingFetch();
+    const c = client(f.fn);
+    await c.searchNewGraded();
+    await c.getItem('v1|111|0');
+    for (const r of f.reqs) {
+      expect(Object.keys(r.headers).sort()).toEqual(['Authorization', 'X-EBAY-C-MARKETPLACE-ID']);
+    }
+    expect(new URL(f.reqs[0]!.url).searchParams.get('filter')).not.toContain('deliveryCountry');
   });
 
   it('returns an empty array when no summaries', async () => {

@@ -69,4 +69,23 @@ describe('loadConfig', () => {
     expect(loadConfig({ ...ENV, SOLD_CHECK: 'on' }).SOLD_CHECK).toBe('on');
     expect(() => loadConfig({ ...ENV, SOLD_CHECK: 'yes' })).toThrow(/SOLD_CHECK/);
   });
+  it('parses the optional buyer location and normalizes the postal code', () => {
+    const none = loadConfig(ENV);
+    expect(none.EBAY_BUYER_COUNTRY).toBeUndefined();
+    expect(none.EBAY_BUYER_POSTAL_CODE).toBeUndefined();
+    const blank = loadConfig({ ...ENV, EBAY_BUYER_COUNTRY: '', EBAY_BUYER_POSTAL_CODE: '' });
+    expect(blank.EBAY_BUYER_COUNTRY).toBeUndefined();
+    expect(blank.EBAY_BUYER_POSTAL_CODE).toBeUndefined();
+    const c = loadConfig({ ...ENV, EBAY_BUYER_COUNTRY: 'CA', EBAY_BUYER_POSTAL_CODE: ' h7t 2w7 ' });
+    expect(c.EBAY_BUYER_COUNTRY).toBe('CA');
+    expect(c.EBAY_BUYER_POSTAL_CODE).toBe('H7T2W7');
+    expect(loadConfig({ ...ENV, EBAY_BUYER_COUNTRY: 'CA' }).EBAY_BUYER_POSTAL_CODE).toBeUndefined();
+  });
+  it('rejects a bad buyer country, a bad postal code, or a postal code without a country', () => {
+    expect(() => loadConfig({ ...ENV, EBAY_BUYER_COUNTRY: 'ca' })).toThrow(/EBAY_BUYER_COUNTRY/);
+    expect(() => loadConfig({ ...ENV, EBAY_BUYER_COUNTRY: 'CAN' })).toThrow(/EBAY_BUYER_COUNTRY/);
+    expect(() => loadConfig({ ...ENV, EBAY_BUYER_COUNTRY: 'CA', EBAY_BUYER_POSTAL_CODE: 'H7' })).toThrow(/EBAY_BUYER_POSTAL_CODE/);
+    expect(() => loadConfig({ ...ENV, EBAY_BUYER_COUNTRY: 'CA', EBAY_BUYER_POSTAL_CODE: 'H7T-2W7' })).toThrow(/EBAY_BUYER_POSTAL_CODE/);
+    expect(() => loadConfig({ ...ENV, EBAY_BUYER_POSTAL_CODE: 'H7T2W7' })).toThrow(/EBAY_BUYER_COUNTRY \(required when EBAY_BUYER_POSTAL_CODE is set\)/);
+  });
 });

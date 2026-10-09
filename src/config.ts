@@ -35,7 +35,17 @@ const schema = z.object({
     blankToUndefined,
     z.string().min(32).max(80).regex(/^[A-Za-z0-9_-]+$/).optional(),
   ),
+  /** Buyer's ISO country (e.g. CA). eBay then quotes shipping to them and the search keeps only listings that ship there. */
+  EBAY_BUYER_COUNTRY: z.preprocess(blankToUndefined, z.string().regex(/^[A-Z]{2}$/).optional()),
+  /** Buyer's postal code for shipping quotes; trimmed, spaces removed, uppercased. Requires EBAY_BUYER_COUNTRY. */
+  EBAY_BUYER_POSTAL_CODE: z.preprocess(
+    (v) => (typeof v === 'string' ? (v.replace(/\s+/g, '').toUpperCase() || undefined) : v),
+    z.string().regex(/^[A-Z0-9]{3,10}$/).optional(),
+  ),
 }).superRefine((c, ctx) => {
+  if (c.EBAY_BUYER_POSTAL_CODE && !c.EBAY_BUYER_COUNTRY) {
+    ctx.addIssue({ code: 'custom', path: ['EBAY_BUYER_COUNTRY'], message: 'required when EBAY_BUYER_POSTAL_CODE is set' });
+  }
   if (c.EBAY_DELETION_ENDPOINT && !c.EBAY_DELETION_VERIFICATION_TOKEN) {
     ctx.addIssue({ code: 'custom', path: ['EBAY_DELETION_VERIFICATION_TOKEN'], message: 'required when EBAY_DELETION_ENDPOINT is set' });
   }

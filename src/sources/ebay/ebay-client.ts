@@ -37,6 +37,8 @@ export interface EbayClientOptions {
   query: string;
   minPrice: number;
   budget: Budget;
+  /** When set, eBay quotes shipping to this location and the search keeps only listings that ship to its country. */
+  buyerLocation?: { country: string; postalCode?: string };
 }
 
 export function createEbayClient(o: EbayClientOptions): EbayClient {
@@ -61,11 +63,21 @@ export function createEbayClient(o: EbayClientOptions): EbayClient {
     return token.value;
   }
 
+  const endUserCtx = o.buyerLocation
+    ? `contextualLocation=${encodeURIComponent(
+        `country=${o.buyerLocation.country}${o.buyerLocation.postalCode ? `,zip=${o.buyerLocation.postalCode}` : ''}`,
+      )}`
+    : undefined;
+
   async function get(path: string): Promise<Response> {
     for (let attempt = 0; ; attempt++) {
       await o.budget.beforeCall();
       const res = await o.fetchFn(`${API}${path}`, {
-        headers: { Authorization: `Bearer ${await getToken()}`, 'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US' },
+        headers: {
+          Authorization: `Bearer ${await getToken()}`,
+          'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US',
+          ...(endUserCtx ? { 'X-EBAY-C-ENDUSERCTX': endUserCtx } : {}),
+        },
       });
       if (res.status !== 401 || attempt >= 1) return res;
       token = null;
@@ -77,7 +89,7 @@ export function createEbayClient(o: EbayClientOptions): EbayClient {
       const params = new URLSearchParams({
         q: o.query,
         category_ids: o.categoryIds,
-        filter: `buyingOptions:{FIXED_PRICE},conditionIds:{2750},price:[${o.minPrice}..],priceCurrency:USD`,
+        filter: `buyingOptions:{FIXED_PRICE},conditionIds:{2750},price:[${o.minPrice}..],priceCurrency:USD${o.buyerLocation ? `,deliveryCountry:${o.buyerLocation.country}` : ''}`,
         sort: 'newlyListed',
         limit: '200',
       });
