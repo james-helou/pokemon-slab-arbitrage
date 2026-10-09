@@ -42,7 +42,8 @@ function pickCandidate(cands: PtCard[]): PtCard | null {
 const norm = (s: string | undefined) => (s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 const normNumber = (s: string | undefined) => norm(s).split('/')[0]!.replace(/^0+(?=\d)/, '');
 
-async function tcgplayerIds(fetchFn: typeof fetch, cardId: string): Promise<string[]> {
+/** Distinct TCGplayer product ids TCGdex lists for a card (empty when the card is unknown). Throws on TCGdex failure. */
+export async function tcgplayerIds(fetchFn: typeof fetch, cardId: string): Promise<string[]> {
   const res = await fetchFn(`${TCGDEX}/cards/${encodeURIComponent(cardId)}`, { signal: AbortSignal.timeout(TIMEOUT_MS) });
   if (res.status === 404) return [];
   if (!res.ok) throw new Error(`tcgdex card ${cardId}: status ${res.status}`);

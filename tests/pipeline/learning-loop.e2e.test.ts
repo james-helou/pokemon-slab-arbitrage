@@ -26,7 +26,7 @@ async function setup() {
   const now = () => clock.now;
   const fetchNever = (async () => { throw new Error('no network in e2e'); }) as unknown as typeof fetch;
   const oracle = await buildOracleDeps(
-    { COMPS_SOURCE: 'fixture', POKETRACE_API_KEY: undefined, COMPS_FIXTURE_PATH: 'data/comps-fixture.json' },
+    { COMPS_SOURCE: 'fixture', POKETRACE_API_KEY: undefined, PPT_API_KEY: undefined, COMPS_FIXTURE_PATH: 'data/comps-fixture.json' },
     { db, now, log: silentLog, fetch: fetchNever },
   );
   const valuate: EvaluateDeps['valuate'] = (key, s) => getValuation(oracle, key, s);

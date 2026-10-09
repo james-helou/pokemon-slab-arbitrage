@@ -98,4 +98,13 @@ describe('rawCeilingMultipliers setting', () => {
     await put('"nope"');
     expect((await loadSettings(db)).rawCeilingMultipliers).toEqual(DEFAULT_SETTINGS.rawCeilingMultipliers);
   });
+
+  it('defaults pptDailyCredits to 90 and clamps stored values to 0..100', async () => {
+    expect(DEFAULT_SETTINGS.pptDailyCredits).toBe(90);
+    const db = await createTestDb();
+    await setSetting(db, 'pptDailyCredits', 500);
+    expect((await loadSettings(db)).pptDailyCredits).toBe(100);
+    await setSetting(db, 'pptDailyCredits', -5);
+    expect((await loadSettings(db)).pptDailyCredits).toBe(0);
+  });
 });

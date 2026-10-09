@@ -4,6 +4,9 @@ import type { Log } from '../log.js';
 import { poketraceAggregateSource } from '../poketrace/aggregate-source.js';
 import { createPoketraceClient } from '../poketrace/client.js';
 import { invalidatePoketraceId, resolvePoketraceId } from '../poketrace/mapping.js';
+import { pptAggregateSource } from '../ppt/aggregate-source.js';
+import { createPptClient } from '../ppt/client.js';
+import { loadSettings } from '../settings/settings.js';
 import { loadFixtureCompsSource, type CompsSource } from './comps-source.js';
 import { compositeCompsSource } from './composite-source.js';
 import type { OracleDeps } from './oracle.js';
@@ -19,10 +22,11 @@ export interface OracleWiringDeps {
 
 /**
  * Oracle dependencies for COMPS_SOURCE. fixture: sample comps + own DB comps (today's behaviour). poketrace: PokeTrace
- * aggregates preferred, own DB comps as fallback, fixture never loaded and any leftover fixture rows excluded.
+ * aggregates preferred, own DB comps as fallback, fixture never loaded and any leftover fixture rows excluded. ppt: same
+ * shape with PokemonPriceTracker's free tier, its daily credit cap read from settings at call time.
  */
 export async function buildOracleDeps(
-  cfg: Pick<Config, 'COMPS_SOURCE' | 'POKETRACE_API_KEY' | 'COMPS_FIXTURE_PATH'>,
+  cfg: Pick<Config, 'COMPS_SOURCE' | 'POKETRACE_API_KEY' | 'PPT_API_KEY' | 'COMPS_FIXTURE_PATH'>,
   deps: OracleWiringDeps,
 ): Promise<OracleDeps> {
   const { db, now, log } = deps;
@@ -35,6 +39,15 @@ export async function buildOracleDeps(
       client, now, log,
       resolveId: (cardId) => resolvePoketraceId({ db, client, fetch: deps.fetch, now }, cardId),
       invalidateId: (cardId) => invalidatePoketraceId(db, cardId, now()),
+    });
+    return { db, now, source: compositeCompsSource([{ source: own }], log), aggregate, excludeFixture: true };
+  }
+  if (cfg.COMPS_SOURCE === 'ppt') {
+    if (!cfg.PPT_API_KEY) throw new Error('PPT_API_KEY is required when COMPS_SOURCE=ppt');
+    const client = createPptClient({ apiKey: cfg.PPT_API_KEY, fetch: deps.fetch });
+    const aggregate = pptAggregateSource({
+      db, client, now, log, fetch: deps.fetch,
+      dailyCredits: async () => (await loadSettings(db)).pptDailyCredits,
     });
     return { db, now, source: compositeCompsSource([{ source: own }], log), aggregate, excludeFixture: true };
   }

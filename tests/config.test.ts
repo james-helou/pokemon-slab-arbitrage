@@ -88,4 +88,11 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...ENV, EBAY_BUYER_COUNTRY: 'CA', EBAY_BUYER_POSTAL_CODE: 'H7T-2W7' })).toThrow(/EBAY_BUYER_POSTAL_CODE/);
     expect(() => loadConfig({ ...ENV, EBAY_BUYER_POSTAL_CODE: 'H7T2W7' })).toThrow(/EBAY_BUYER_COUNTRY \(required when EBAY_BUYER_POSTAL_CODE is set\)/);
   });
+  it('accepts COMPS_SOURCE=ppt with a key and rejects it without one (key-free message)', () => {
+    expect(loadConfig({ ...ENV, COMPS_SOURCE: 'ppt', PPT_API_KEY: 'ppt-key' })).toMatchObject({ COMPS_SOURCE: 'ppt', PPT_API_KEY: 'ppt-key' });
+    for (const key of [undefined, '']) {
+      expect(() => loadConfig({ ...ENV, COMPS_SOURCE: 'ppt', PPT_API_KEY: key })).toThrow(/PPT_API_KEY/);
+    }
+    expect(loadConfig(ENV).PPT_API_KEY).toBeUndefined();
+  });
 });

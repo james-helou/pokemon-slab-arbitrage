@@ -3,7 +3,7 @@ import { loadConfig } from '../../src/config.js';
 import type { CompsSource } from '../../src/oracle/comps-source.js';
 import { buildOracleDeps } from '../../src/oracle/oracle-wiring.js';
 import { getValuation } from '../../src/oracle/oracle.js';
-import { DEFAULT_SETTINGS } from '../../src/settings/settings.js';
+import { DEFAULT_SETTINGS, setSetting } from '../../src/settings/settings.js';
 import { createTestDb } from '../helpers/test-db.js';
 import { seedCards } from '../helpers/fixtures.js';
 
@@ -61,6 +61,28 @@ describe('buildOracleDeps', () => {
     expect(h.fetched.map((f) => f.url)).toEqual(['https://api.tcgdex.net/v2/en/cards/sv03.5-199']);
     expect(h.lines.map((l) => l.msg)).toContain('poketrace mapping failed');
     expect(JSON.stringify(h.lines)).not.toContain('pt-s3cret');
+  });
+});
+
+describe('buildOracleDeps ppt mode', () => {
+  it('selects ppt: aggregate + own DB comps only, fixture excluded and never loaded', async () => {
+    const h = await harness();
+    const o = await buildOracleDeps(loadConfig({ ...ENV, COMPS_SOURCE: 'ppt', PPT_API_KEY: 'ppt-s3cret' }), h.deps);
+    expect(o.source.name).toBe('own_db');
+    expect(o.aggregate).toBeDefined();
+    expect(o.excludeFixture).toBe(true);
+    expect(h.fixtureLoads).toEqual([]);
+    expect(h.lines.map((l) => l.msg)).toEqual(['comps source: ppt']);
+  });
+
+  it('reads pptDailyCredits from settings at call time', async () => {
+    const h = await harness();
+    const o = await buildOracleDeps(loadConfig({ ...ENV, COMPS_SOURCE: 'ppt', PPT_API_KEY: 'ppt-s3cret' }), h.deps);
+    await setSetting(h.deps.db, 'pptDailyCredits', 0);
+    expect(await o.aggregate!.fetchAggregate(KEY)).toBeNull();
+    // tcgdex answered 500 in this harness, so the failure is a key-free warn and no PPT call was made.
+    expect(h.fetched.every((f) => !f.url.includes('pokemonpricetracker'))).toBe(true);
+    expect(JSON.stringify(h.lines)).not.toContain('ppt-s3cret');
   });
 });
 

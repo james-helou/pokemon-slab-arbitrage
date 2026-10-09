@@ -47,6 +47,8 @@ export interface Settings {
   soldCheckMinSales: number;
   /** Disagree (route to over_budget) when valuation > sold median x (1 + this). */
   soldCheckMaxGap: number;
+  /** PokemonPriceTracker free-tier credits spendable per UTC day (a card lookup costs 2). The tier allows 100. */
+  pptDailyCredits: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -80,6 +82,7 @@ export const DEFAULT_SETTINGS: Settings = {
   soldCheckCacheHours: 12,
   soldCheckMinSales: 5,
   soldCheckMaxGap: 0.2,
+  pptDailyCredits: 90,
 };
 
 /** Lower bounds for DB-loaded values that would otherwise hammer eBay or Discord. */
@@ -98,6 +101,7 @@ const MINIMUMS: Partial<Record<keyof Settings, number>> = {
   soldCheckMaxGap: 0.05,
   fxFeePct: 0,
   stage1ShippingEstimate: 0,
+  pptDailyCredits: 0,
 };
 
 /** Upper bounds for DB-loaded values that would otherwise make the sold check scrape harder or trust too little. */
@@ -109,6 +113,7 @@ const MAXIMUMS: Partial<Record<keyof Settings, number>> = {
   soldCheckMaxGap: 1,
   fxFeePct: 0.1,
   stage1ShippingEstimate: 200,
+  pptDailyCredits: 100,
 };
 
 /** Non-object -> defaults; a non-positive/non-numeric entry -> that key's default. */

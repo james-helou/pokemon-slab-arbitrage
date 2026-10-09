@@ -18,9 +18,10 @@ const schema = z.object({
   /** Weekly report channel; falls back to the over-budget channel when unset. */
   DISCORD_REPORT_CHANNEL_ID: z.string().optional().transform((v) => v || undefined),
   COMPS_FIXTURE_PATH: z.string().default('data/comps-fixture.json'),
-  /** fixture = sample comps (dev, SAMPLE COMPS banner); poketrace = PokeTrace aggregates + own DB comps. */
-  COMPS_SOURCE: z.preprocess(blankToUndefined, z.enum(['fixture', 'poketrace']).default('fixture')),
+  /** fixture = sample comps (dev, SAMPLE COMPS banner); poketrace = PokeTrace aggregates + own DB comps; ppt = PokemonPriceTracker free tier + own DB comps. */
+  COMPS_SOURCE: z.preprocess(blankToUndefined, z.enum(['fixture', 'poketrace', 'ppt']).default('fixture')),
   POKETRACE_API_KEY: z.string().optional().transform((v) => v || undefined),
+  PPT_API_KEY: z.string().optional().transform((v) => v || undefined),
   /** off (default): no eBay sold-search fetches at all. on: guarded check on alert candidates only. */
   SOLD_CHECK: z.preprocess(blankToUndefined, z.enum(['off', 'on']).default('off')),
   /** HTTP listen port (Railway sets it); main falls back to 8080. */
@@ -54,6 +55,9 @@ const schema = z.object({
   }
   if (c.COMPS_SOURCE === 'poketrace' && !c.POKETRACE_API_KEY) {
     ctx.addIssue({ code: 'custom', path: ['POKETRACE_API_KEY'], message: 'required when COMPS_SOURCE=poketrace' });
+  }
+  if (c.COMPS_SOURCE === 'ppt' && !c.PPT_API_KEY) {
+    ctx.addIssue({ code: 'custom', path: ['PPT_API_KEY'], message: 'required when COMPS_SOURCE=ppt' });
   }
 });
 
