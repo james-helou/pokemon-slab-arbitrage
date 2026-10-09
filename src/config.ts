@@ -22,6 +22,8 @@ const schema = z.object({
   COMPS_SOURCE: z.preprocess(blankToUndefined, z.enum(['fixture', 'poketrace', 'ppt']).default('fixture')),
   POKETRACE_API_KEY: z.string().optional().transform((v) => v || undefined),
   PPT_API_KEY: z.string().optional().transform((v) => v || undefined),
+  /** Set to 1 only after running npm run ppt:probe and checking the parser against a real response. */
+  PPT_PARSER_ACK: z.preprocess(blankToUndefined, z.enum(['1']).optional()),
   /** off (default): no eBay sold-search fetches at all. on: guarded check on alert candidates only. */
   SOLD_CHECK: z.preprocess(blankToUndefined, z.enum(['off', 'on']).default('off')),
   /** HTTP listen port (Railway sets it); main falls back to 8080. */

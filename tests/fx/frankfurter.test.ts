@@ -47,10 +47,15 @@ describe('createUsdCadRate', () => {
     expect(urls).toHaveLength(2);
   });
 
-  it('does not cache failures', async () => {
+  it('after a failure returns null for 10 minutes without refetching or logging, then retries', async () => {
     let n = 0;
-    const { rate, urls } = setup(() => (n++ === 0 ? new Response('x', { status: 500 }) : ok(1.41)()));
+    const { rate, urls, logs, advance } = setup(() => (n++ === 0 ? new Response('x', { status: 500 }) : ok(1.41)()));
     expect(await rate()).toBeNull();
+    advance(9 * 60_000);
+    expect(await rate()).toBeNull();
+    expect(urls).toHaveLength(1);
+    expect(logs).toHaveLength(1);
+    advance(61_000);
     expect(await rate()).toBe(1.41);
     expect(urls).toHaveLength(2);
   });

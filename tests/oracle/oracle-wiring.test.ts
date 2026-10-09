@@ -67,7 +67,7 @@ describe('buildOracleDeps', () => {
 describe('buildOracleDeps ppt mode', () => {
   it('selects ppt: aggregate + own DB comps only, fixture excluded and never loaded', async () => {
     const h = await harness();
-    const o = await buildOracleDeps(loadConfig({ ...ENV, COMPS_SOURCE: 'ppt', PPT_API_KEY: 'ppt-s3cret' }), h.deps);
+    const o = await buildOracleDeps(loadConfig({ ...ENV, COMPS_SOURCE: 'ppt', PPT_API_KEY: 'ppt-s3cret', PPT_PARSER_ACK: '1' }), h.deps);
     expect(o.source.name).toBe('own_db');
     expect(o.aggregate).toBeDefined();
     expect(o.excludeFixture).toBe(true);
@@ -75,9 +75,15 @@ describe('buildOracleDeps ppt mode', () => {
     expect(h.lines.map((l) => l.msg)).toEqual(['comps source: ppt']);
   });
 
+  it('refuses ppt at boot while the parser is unverified and PPT_PARSER_ACK is not set', async () => {
+    const h = await harness();
+    await expect(buildOracleDeps(loadConfig({ ...ENV, COMPS_SOURCE: 'ppt', PPT_API_KEY: 'ppt-s3cret' }), h.deps))
+      .rejects.toThrow(/ppt:probe.*PPT_PARSER_ACK/s);
+  });
+
   it('reads pptDailyCredits from settings at call time', async () => {
     const h = await harness();
-    const o = await buildOracleDeps(loadConfig({ ...ENV, COMPS_SOURCE: 'ppt', PPT_API_KEY: 'ppt-s3cret' }), h.deps);
+    const o = await buildOracleDeps(loadConfig({ ...ENV, COMPS_SOURCE: 'ppt', PPT_API_KEY: 'ppt-s3cret', PPT_PARSER_ACK: '1' }), h.deps);
     await setSetting(h.deps.db, 'pptDailyCredits', 0);
     expect(await o.aggregate!.fetchAggregate(KEY)).toBeNull();
     // tcgdex answered 500 in this harness, so the failure is a key-free warn and no PPT call was made.

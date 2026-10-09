@@ -76,4 +76,29 @@ describe('ppt client', () => {
     await expect(h.client.get('/cards')).rejects.toBeInstanceOf(PptHttpError);
     expect(h.calls).toHaveLength(18);
   });
+
+  it('does not retry a timeout or network error but counts it toward the breaker', async () => {
+    const h = harness([() => { throw new Error('timeout'); }]);
+    await expect(h.client.get('/cards')).rejects.toBeInstanceOf(PptHttpError);
+    expect(h.calls).toHaveLength(1);
+    for (let i = 0; i < 4; i++) await h.client.get('/cards').catch(() => {});
+    expect(h.client.isOpen()).toBe(true);
+    await expect(h.client.get('/cards')).rejects.toBeInstanceOf(PptUnavailableError);
+    h.advance(10 * 60_000);
+    expect(h.client.isOpen()).toBe(false);
+  });
+
+  it('does not retry a 200 with an unreadable body (status 200, key-free)', async () => {
+    const h = harness([() => new Response('not json', { status: 200 })]);
+    const err = await h.client.get('/cards').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PptHttpError);
+    expect((err as PptHttpError).status).toBe(200);
+    expect(h.calls).toHaveLength(1);
+  });
+
+  it('does not retry other 4xx', async () => {
+    const h = harness([() => json({}, 401)]);
+    await expect(h.client.get('/cards')).rejects.toThrow('401');
+    expect(h.calls).toHaveLength(1);
+  });
 });

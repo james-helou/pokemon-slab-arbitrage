@@ -4,7 +4,7 @@ import type { Log } from '../log.js';
 import { poketraceAggregateSource } from '../poketrace/aggregate-source.js';
 import { createPoketraceClient } from '../poketrace/client.js';
 import { invalidatePoketraceId, resolvePoketraceId } from '../poketrace/mapping.js';
-import { pptAggregateSource } from '../ppt/aggregate-source.js';
+import { PPT_PARSER_VERSION, pptAggregateSource } from '../ppt/aggregate-source.js';
 import { createPptClient } from '../ppt/client.js';
 import { loadSettings } from '../settings/settings.js';
 import { loadFixtureCompsSource, type CompsSource } from './comps-source.js';
@@ -26,7 +26,7 @@ export interface OracleWiringDeps {
  * shape with PokemonPriceTracker's free tier, its daily credit cap read from settings at call time.
  */
 export async function buildOracleDeps(
-  cfg: Pick<Config, 'COMPS_SOURCE' | 'POKETRACE_API_KEY' | 'PPT_API_KEY' | 'COMPS_FIXTURE_PATH'>,
+  cfg: Partial<Pick<Config, 'PPT_PARSER_ACK'>> & Pick<Config, 'COMPS_SOURCE' | 'POKETRACE_API_KEY' | 'PPT_API_KEY' | 'COMPS_FIXTURE_PATH'>,
   deps: OracleWiringDeps,
 ): Promise<OracleDeps> {
   const { db, now, log } = deps;
@@ -44,6 +44,11 @@ export async function buildOracleDeps(
   }
   if (cfg.COMPS_SOURCE === 'ppt') {
     if (!cfg.PPT_API_KEY) throw new Error('PPT_API_KEY is required when COMPS_SOURCE=ppt');
+    if (PPT_PARSER_VERSION === 'v0-unverified' && cfg.PPT_PARSER_ACK !== '1') {
+      throw new Error(
+        'COMPS_SOURCE=ppt needs a verified parser: run `npm run ppt:probe -- <cardId>`, check the output, then set PPT_PARSER_ACK=1',
+      );
+    }
     const client = createPptClient({ apiKey: cfg.PPT_API_KEY, fetch: deps.fetch });
     const aggregate = pptAggregateSource({
       db, client, now, log, fetch: deps.fetch,

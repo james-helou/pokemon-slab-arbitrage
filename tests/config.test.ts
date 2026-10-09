@@ -94,5 +94,8 @@ describe('loadConfig', () => {
       expect(() => loadConfig({ ...ENV, COMPS_SOURCE: 'ppt', PPT_API_KEY: key })).toThrow(/PPT_API_KEY/);
     }
     expect(loadConfig(ENV).PPT_API_KEY).toBeUndefined();
+    expect(loadConfig({ ...ENV, PPT_PARSER_ACK: '1' }).PPT_PARSER_ACK).toBe('1');
+    expect(loadConfig({ ...ENV, PPT_PARSER_ACK: '' }).PPT_PARSER_ACK).toBeUndefined();
+    expect(() => loadConfig({ ...ENV, PPT_PARSER_ACK: 'yes' })).toThrow(/PPT_PARSER_ACK/);
   });
 });

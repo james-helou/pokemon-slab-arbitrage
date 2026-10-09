@@ -41,6 +41,6 @@ console.log(JSON.stringify(body, null, 2));
 console.log(`\nparser ${PPT_PARSER_VERSION}:`);
 const now = new Date();
 for (const grade of [10, 9.5, 9, 8.5, 8, 7, 6, 5]) {
-  const p = parsePptCard(body, { grader: 'PSA', grade }, now);
+  const p = parsePptCard(body, { grader: 'PSA', grade }, { now, tcgplayerId: ids[0]! });
   console.log(`PSA ${grade}: ${p ? JSON.stringify(p) : 'null'}`);
 }

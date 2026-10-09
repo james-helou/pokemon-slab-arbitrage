@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '../../src/db/db.js';
 import { PptHttpError, PptUnavailableError, type PptClient } from '../../src/ppt/client.js';
 import { parsePptCard, pptAggregateSource, reservePptCredits } from '../../src/ppt/aggregate-source.js';
@@ -14,15 +14,26 @@ const tcgdexOk = (ids: (number | string)[] = [555]) =>
 const card = (ebay: Record<string, unknown>, over: Record<string, unknown> = {}) => ({
   data: [{ tcgPlayerId: '555', name: 'X', ebay, ...over }],
 });
-const grade = (over: Record<string, unknown> = {}) => ({ medianPrice: 300, averagePrice: 310, salesCount: 12, ...over });
+const grade = (over: Record<string, unknown> = {}) => ({ medianPrice: 300, averagePrice: 310, salesCount: 12, dailyVolume7Day: 5, ...over });
+
+// One PGlite for the file (building one per test dominated the runtime); tables are emptied before each test.
+let shared: Db;
+beforeAll(async () => { shared = await createTestDb(); });
+beforeEach(async () => {
+  await shared.query('delete from vendor_credits');
+  await shared.query('delete from vendor_card_cache');
+});
 
 async function setup(opts: {
-  body?: unknown; err?: Error; cap?: number; ids?: (number | string)[]; tcgdex?: () => Response; now?: () => Date;
+  body?: unknown; err?: Error; open?: boolean; cap?: number; ids?: (number | string)[]; tcgdex?: () => Response; now?: () => Date;
 } = {}) {
-  const db = await createTestDb();
+  const db = shared;
+  await db.query('delete from vendor_credits');
+  await db.query('delete from vendor_card_cache');
   const calls: { path: string; query?: Record<string, string> }[] = [];
   const lines: { level: string; msg: string; data?: Record<string, unknown> }[] = [];
   const client: PptClient = {
+    isOpen: () => opts.open ?? false,
     async get<T>(path: string, query?: Record<string, string>) {
       calls.push({ path, query });
       if (opts.err) throw opts.err;
@@ -43,7 +54,7 @@ const used = async (db: Db) =>
 
 describe('reservePptCredits', () => {
   it('reserves up to the cap, refuses beyond, and a new UTC day resets', async () => {
-    const db = await createTestDb();
+    const db = shared;
     expect(await reservePptCredits(db, '2026-10-09', 2, 5)).toBe(true);
     expect(await reservePptCredits(db, '2026-10-09', 2, 5)).toBe(true);
     expect(await reservePptCredits(db, '2026-10-09', 2, 5)).toBe(false);
@@ -51,12 +62,12 @@ describe('reservePptCredits', () => {
     expect(await reservePptCredits(db, '2026-10-10', 2, 5)).toBe(true);
   });
   it('refuses a first insert larger than the cap and writes no row', async () => {
-    const db = await createTestDb();
+    const db = shared;
     expect(await reservePptCredits(db, '2026-10-09', 2, 1)).toBe(false);
     expect(await used(db)).toHaveLength(0);
   });
   it('concurrent reservations never overspend', async () => {
-    const db = await createTestDb();
+    const db = shared;
     const results = await Promise.all(Array.from({ length: 10 }, () => reservePptCredits(db, '2026-10-09', 2, 9)));
     expect(results.filter(Boolean)).toHaveLength(4);
     expect((await used(db))[0]!.credits).toBe(8);
@@ -167,8 +178,85 @@ describe('pptAggregateSource', () => {
   });
 });
 
+describe('pptAggregateSource review fixes', () => {
+  it('a response for a different card is a negative entry (never valued) and the cached body is not stored', async () => {
+    const body = card({ salesByGrade: { psa10: grade() } }, { tcgPlayerId: '999' });
+    const { src, db, calls, lines } = await setup({ body });
+    expect(await src.fetchAggregate(KEY)).toBeNull();
+    expect(await src.fetchAggregate(KEY)).toBeNull();
+    expect(calls).toHaveLength(1);
+    expect((await db.query<{ body: unknown }>('select body from vendor_card_cache')).rows).toEqual([{ body: null }]);
+    expect(lines.some((l) => l.msg === 'ppt response is not the requested card')).toBe(true);
+  });
+
+  it('a multi-card array is rejected', async () => {
+    const one = { tcgPlayerId: '555', ebay: { salesByGrade: { psa10: grade() } } };
+    const { src } = await setup({ body: { data: [one, { ...one }] } });
+    expect(await src.fetchAggregate(KEY)).toBeNull();
+  });
+
+  it('the cache-hit path re-runs the identity check', async () => {
+    const { src, db, calls } = await setup();
+    await db.query(
+      `insert into vendor_card_cache (provider, card_id, fetched_at, body) values ('ppt', $1, $2, $3::jsonb)`,
+      [KEY.cardId, NOW, JSON.stringify({ tcgplayerId: '555', response: card({ salesByGrade: { psa10: grade() } }, { tcgPlayerId: '1' }) })],
+    );
+    expect(await src.fetchAggregate(KEY)).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
+
+  it('cache-hit asOf is the row fetched_at when the response has no stamp, and stale rows are rejected', async () => {
+    const { src, db } = await setup();
+    const fetchedAt = new Date(NOW.getTime() - 20 * 3_600_000);
+    await db.query(
+      `insert into vendor_card_cache (provider, card_id, fetched_at, body) values ('ppt', $1, $2, $3::jsonb)`,
+      [KEY.cardId, fetchedAt, JSON.stringify({ tcgplayerId: '555', response: card({ salesByGrade: { psa10: grade() } }) })],
+    );
+    expect((await src.fetchAggregate(KEY))!.asOf).toEqual(fetchedAt);
+  });
+
+  it('does not reserve credits or call while the breaker is open', async () => {
+    const { src, db, calls, lines } = await setup({ open: true });
+    expect(await src.fetchAggregate(KEY)).toBeNull();
+    expect(calls).toHaveLength(0);
+    expect(await used(db)).toHaveLength(0);
+    expect(lines.some((l) => l.level === 'warn')).toBe(true);
+  });
+
+  it('a 5xx / network failure writes a 1 hour failed marker, then retries after it', async () => {
+    let t = NOW;
+    const { src, calls, db } = await setup({ err: new PptHttpError('ppt /cards: status 500', 500), now: () => t });
+    await src.fetchAggregate(KEY);
+    t = new Date(NOW.getTime() + 30 * 60_000);
+    await src.fetchAggregate(KEY);
+    expect(calls).toHaveLength(1);
+    expect((await db.query<{ kind: string }>('select kind from vendor_card_cache')).rows).toEqual([{ kind: 'failed' }]);
+    t = new Date(NOW.getTime() + 61 * 60_000);
+    await src.fetchAggregate(KEY);
+    expect(calls).toHaveLength(2);
+    const net = await setup({ err: new Error('network') });
+    await net.src.fetchAggregate(KEY);
+    await net.src.fetchAggregate(KEY);
+    expect(net.calls).toHaveLength(1);
+  });
+
+  it('401/403 latches until the next UTC day: one error log, no further reservations', async () => {
+    let t = NOW;
+    const { src, calls, lines, db } = await setup({ err: new PptHttpError('ppt /cards: status 401', 401), now: () => t });
+    await src.fetchAggregate(KEY);
+    await src.fetchAggregate({ ...KEY, cardId: 'b-2' });
+    await src.fetchAggregate({ ...KEY, cardId: 'b-3' });
+    expect(calls).toHaveLength(1);
+    expect((await used(db))[0]!.credits).toBe(2);
+    expect(lines.filter((l) => l.level === 'error')).toHaveLength(1);
+    t = new Date(NOW.getTime() + 86_400_000);
+    await src.fetchAggregate(KEY);
+    expect(calls).toHaveLength(2);
+  });
+});
+
 describe('parsePptCard', () => {
-  const P = (body: unknown, key: Parameters<typeof parsePptCard>[1] = KEY) => parsePptCard(body, key, NOW);
+  const P = (body: unknown, key: Parameters<typeof parsePptCard>[1] = KEY) => parsePptCard(body, key, { now: NOW, tcgplayerId: '555' });
 
   it('parses both key styles under ebay.salesByGrade and ebay', () => {
     expect(P(card({ salesByGrade: { psa10: grade() } }))).toMatchObject({ value: 300 });
@@ -180,7 +268,7 @@ describe('parsePptCard', () => {
   });
 
   it('accepts a bare data object and uses a different grader prefix', () => {
-    const body = { data: { ebay: { salesByGrade: { bgs9_5: grade() } } } };
+    const body = { data: { tcgPlayerId: 555, ebay: { salesByGrade: { bgs9_5: grade() } } } };
     expect(P(body, { ...KEY, grader: 'BGS', grade: 9.5 })).toMatchObject({ value: 300 });
     expect(P(body)).toBeNull();
   });
@@ -215,5 +303,35 @@ describe('parsePptCard', () => {
 
   it('is null for labelled grades', () => {
     expect(P(card({ salesByGrade: { bgs10: grade() } }), { ...KEY, grader: 'BGS', grade: 10, gradeLabel: 'pristine' })).toBeNull();
+  });
+
+  it('requires an identity field matching the requested id (any known field name, string compare)', () => {
+    const g = { salesByGrade: { psa10: grade() } };
+    expect(P({ data: [{ ebay: g }] })).toBeNull();
+    expect(P({ data: [{ tcgPlayerId: '556', ebay: g }] })).toBeNull();
+    for (const f of ['tcgPlayerId', 'tcgplayerId', 'tcgPlayerID', 'tcgplayer_id']) {
+      expect(P({ data: [{ [f]: 555, ebay: g }] })).toMatchObject({ value: 300 });
+    }
+  });
+
+  it('requires a finite dailyVolume7Day while the parser is unverified', () => {
+    expect(P(card({ salesByGrade: { psa10: grade({ dailyVolume7Day: undefined }) } }))).toBeNull();
+    expect(P(card({ salesByGrade: { psa10: grade({ dailyVolume7Day: 'x' }) } }))).toBeNull();
+  });
+
+  it('rejects a stamp older than 72h but accepts one inside it', () => {
+    expect(P(card({ salesByGrade: { psa10: grade() } }, { lastUpdated: '2026-10-06T11:00:00Z' }))).toBeNull();
+    expect(P(card({ salesByGrade: { psa10: grade() } }, { lastUpdated: '2026-10-07T13:00:00Z' }))).not.toBeNull();
+  });
+
+  it('rejects a non-USD currency on the card or ebay object, accepts USD', () => {
+    expect(P(card({ salesByGrade: { psa10: grade() } }, { currency: 'CAD' }))).toBeNull();
+    expect(P(card({ currency: 'EUR', salesByGrade: { psa10: grade() } }))).toBeNull();
+    expect(P(card({ salesByGrade: { psa10: grade() } }, { currency: 'usd' }))).not.toBeNull();
+  });
+
+  it('low/high bracket the value', () => {
+    expect(P(card({ salesByGrade: { psa10: grade({ minPrice: 350, maxPrice: 250 }) } }))).toMatchObject({ low: 300, high: 300 });
+    expect(P(card({ salesByGrade: { psa10: grade({ minPrice: 200, maxPrice: 400 }) } }))).toMatchObject({ low: 200, high: 400 });
   });
 });
