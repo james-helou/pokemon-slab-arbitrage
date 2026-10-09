@@ -15,8 +15,9 @@ export function channelCosts(ch: Channel, salePrice: number): number {
   return round2(commission + payment + ch.orderFlatFee + ch.outboundShipping + ch.supplies);
 }
 
-export function buyTotal(price: number, shipping: number, taxRate: number): number {
-  return round2((price + shipping) * (1 + taxRate));
+/** `fxFeePct` is the card/bank conversion fee on the USD charge, added next to tax (both apply to price + shipping). */
+export function buyTotal(price: number, shipping: number, taxRate: number, fxFeePct = 0): number {
+  return round2((price + shipping) * (1 + taxRate + fxFeePct));
 }
 
 export function netProfit(ch: Channel, salePrice: number, totalCost: number): number {

@@ -9,6 +9,8 @@ export interface DeliveryDeps {
   send: (route: Route, payload: AlertPayload) => Promise<string>;
   now: () => Date;
   log: Log;
+  /** USD to CAD rate for alert amounts. Absent or null: alerts are USD only. */
+  usdCad?: () => Promise<number | null>;
 }
 
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : 'unknown error');
@@ -18,6 +20,7 @@ export async function deliverPending(deps: DeliveryDeps): Promise<{ sent: number
   if (settings.paused) return { sent: 0, failed: 0 };
   const expired = await expireStaleDeliveries(deps.db, deps.now(), settings.maxAlertAgeMinutes);
   if (expired) deps.log('warn', 'alert deliveries expired', { expired, maxAlertAgeMinutes: settings.maxAlertAgeMinutes });
+  const usdCad = await deps.usdCad?.().catch(() => null) ?? null;
   let sent = 0;
   let failed = 0;
   // dueDeliveries leases the rows it returns, so overlapping ticks never double-send.
@@ -25,7 +28,7 @@ export async function deliverPending(deps: DeliveryDeps): Promise<{ sent: number
     const id = d.recommendation.id;
     let messageId: string;
     try {
-      messageId = await deps.send(d.route, buildAlertPayload(d.recommendation));
+      messageId = await deps.send(d.route, buildAlertPayload(d.recommendation, { usdCad }));
     } catch (err) {
       const message = errorMessage(err);
       await markFailed(deps.db, id, message, deps.now(), deps.log);

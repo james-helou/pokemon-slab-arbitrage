@@ -22,6 +22,34 @@ describe('deliverPending', () => {
     expect(sent).toEqual(['over_budget']);
   });
 
+  it('fetches the USD/CAD rate once per tick and shows CAD in the alert', async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    for (const ext of ['111', '222']) {
+      const id = (await insertRecommendation(db, makeNewRecommendation({ externalId: ext })))!;
+      await insertDelivery(db, id, 'alerts');
+    }
+    let rateCalls = 0;
+    const usdCad = async () => { rateCalls++; return 1.4; };
+    const bodies: string[] = [];
+    const send = async (_r: Route, p: unknown) => { bodies.push(JSON.stringify(p)); return 'm'; };
+    expect(await deliverPending({ db, send, usdCad, now: () => NOW, log: silentLog })).toEqual({ sent: 2, failed: 0 });
+    expect(rateCalls).toBe(1);
+    expect(bodies.every((b) => b.includes('C$'))).toBe(true);
+  });
+
+  it('still sends (USD only) when the rate lookup throws', async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    const id = (await insertRecommendation(db, makeNewRecommendation()))!;
+    await insertDelivery(db, id, 'alerts');
+    const bodies: string[] = [];
+    const send = async (_r: Route, p: unknown) => { bodies.push(JSON.stringify(p)); return 'm'; };
+    const usdCad = async () => { throw new Error('boom'); };
+    expect(await deliverPending({ db, send, usdCad, now: () => NOW, log: silentLog })).toEqual({ sent: 1, failed: 0 });
+    expect(bodies[0]).not.toContain('C$');
+  });
+
   it('marks failures and retries only after the backoff', async () => {
     const db = await createTestDb();
     await seedCards(db);

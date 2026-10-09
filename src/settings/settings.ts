@@ -9,6 +9,10 @@ export interface Settings {
   alertRatio: number;
   valueFloor: number;
   buyTaxRate: number;
+  /** Card/bank currency-conversion fee on the USD charge (0 = none). Added to the tax rate in the buy total. */
+  fxFeePct: number;
+  /** Shipping (USD) assumed for the stage-1 pre-score when the search summary has none. Stage 2 uses the real cost. */
+  stage1ShippingEstimate: number;
   /** Multiplier applied to comps whose real price may be hidden (accepted Best Offers). Not applied to paid_source. */
   boDiscount: number;
   valuationMaxAgeHours: number;
@@ -50,7 +54,10 @@ export const DEFAULT_SETTINGS: Settings = {
   minRoi: 0.2,
   alertRatio: 0.8,
   valueFloor: 150,
-  buyTaxRate: 0.07,
+  // Buyer is in Laval, Quebec: GST 5% + QST 9.975%.
+  buyTaxRate: 0.14975,
+  fxFeePct: 0,
+  stage1ShippingEstimate: 35,
   boDiscount: 0.92,
   valuationMaxAgeHours: 24,
   minCompCount: 3,
@@ -86,6 +93,8 @@ const MINIMUMS: Partial<Record<keyof Settings, number>> = {
   soldCheckCacheHours: 1,
   soldCheckMinSales: 3,
   soldCheckMaxGap: 0.05,
+  fxFeePct: 0,
+  stage1ShippingEstimate: 0,
 };
 
 /** Upper bounds for DB-loaded values that would otherwise make the sold check scrape harder or trust too little. */
@@ -95,6 +104,8 @@ const MAXIMUMS: Partial<Record<keyof Settings, number>> = {
   soldCheckCacheHours: 72,
   soldCheckMinSales: 30,
   soldCheckMaxGap: 1,
+  fxFeePct: 0.1,
+  stage1ShippingEstimate: 200,
 };
 
 export async function loadSettings(db: Db): Promise<Settings> {

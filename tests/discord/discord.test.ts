@@ -36,6 +36,21 @@ describe('buildAlertPayload', () => {
     expect(JSON.stringify(p)).not.toContain('—');
   });
 
+  it('appends CAD amounts to Buy total and Best net when a rate is given', async () => {
+    const { rec } = await setupRec();
+    const fields = Object.fromEntries((buildAlertPayload(rec, { usdCad: 1.4 }).embeds[0]!.fields ?? []).map((f) => [f.name, f.value]));
+    expect(fields['Buy total']).toContain('(≈ C$531.79)');
+    expect(fields['Best net']).toBe('$133.75 via ebay · ROI 35% (≈ C$187.25)');
+  });
+
+  it('is identical with no rate, a null rate, or no opts', async () => {
+    const { rec } = await setupRec();
+    const plain = JSON.stringify(buildAlertPayload(rec));
+    expect(JSON.stringify(buildAlertPayload(rec, {}))).toBe(plain);
+    expect(JSON.stringify(buildAlertPayload(rec, { usdCad: null }))).toBe(plain);
+    expect(plain).not.toContain('C$');
+  });
+
   it('shows ship ? when shipping is unknown', async () => {
     const { rec } = await setupRec();
     const p = buildAlertPayload({ ...rec, listingSnapshot: { ...rec.listingSnapshot, shipping: null } });

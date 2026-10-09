@@ -29,6 +29,7 @@ function safeEbayUrl(raw: string): string | null {
 }
 
 const usd = (n: number) => `$${n.toFixed(2)}`;
+const cadSuffix = (n: number, rate: number | null | undefined) => (rate ? ` (≈ C$${(n * rate).toFixed(2)})` : '');
 
 const UNAVAILABLE: Record<SoldCheckRunStatus, string> = {
   ok: 'no median',
@@ -49,7 +50,8 @@ function soldCheckLine(s: SoldCheckSnapshot, value: number, createdAt: Date): st
   return `eBay sold median ${usd(s.median)} from ${s.saleCount} sales (${age}${note})`;
 }
 
-export function buildAlertPayload(r: StoredRecommendation): AlertPayload {
+export function buildAlertPayload(r: StoredRecommendation, opts?: { usdCad?: number | null }): AlertPayload {
+  const rate = opts?.usdCad;
   const v = r.valuationSnapshot;
   const nets = r.channelNets
     .map((c) => {
@@ -70,14 +72,14 @@ export function buildAlertPayload(r: StoredRecommendation): AlertPayload {
   const fields: NonNullable<APIEmbed['fields']> = [
     {
       name: 'Buy total',
-      value: `${usd(r.buyTotal)} (list ${usd(r.listingSnapshot.price)} + ${ship} + tax)`,
+      value: `${usd(r.buyTotal)}${cadSuffix(r.buyTotal, rate)} (list ${usd(r.listingSnapshot.price)} + ${ship} + tax)`,
     },
     {
       name: 'Market value',
       value: `${usd(v.value)} (range ${usd(v.low)} to ${usd(v.high)}, ${v.compCount} comps, newest ${Math.round(v.newestCompAgeDays)}d)`,
     },
     ...(r.soldCheck ? [{ name: 'Sold check', value: soldCheckLine(r.soldCheck, v.value, r.createdAt) }] : []),
-    { name: 'Best net', value: `${usd(r.bestNet)} via ${r.bestChannel} · ROI ${Math.round(r.roi * 100)}%`, inline: true },
+    { name: 'Best net', value: `${usd(r.bestNet)} via ${r.bestChannel} · ROI ${Math.round(r.roi * 100)}%${cadSuffix(r.bestNet, rate)}`, inline: true },
     { name: 'Confidence', value: `${Math.round(r.confidence * 100)}%`, inline: true },
     { name: 'Net by channel', value: nets || 'none' },
     { name: 'Cert', value: r.cert ?? 'not listed', inline: true },

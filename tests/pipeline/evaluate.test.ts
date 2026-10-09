@@ -43,7 +43,7 @@ async function run(
   const ctx = await setup(opts);
   const listing = summaryToListing({ ...SUMMARY, title, price: { value: price, currency: 'USD' }, ...summary })!;
   await upsertListing(ctx.db, listing, NOW);
-  const outcome = await evaluateListing(ctx.deps, listing, { ...DEFAULT_SETTINGS, ...opts.settings }, ctx.channels);
+  const outcome = await evaluateListing(ctx.deps, listing, { ...DEFAULT_SETTINGS, buyTaxRate: 0.07, ...opts.settings }, ctx.channels);
   return { ...ctx, outcome };
 }
 
@@ -104,9 +104,15 @@ describe('evaluateListing', () => {
     expect((await run(undefined, undefined, { item: pricier })).outcome.status).toBe('rejected');
   });
 
-  it('rejects shipping_unknown at stage 1 without calling getItem', async () => {
+  it('pre-scores with the stage-1 shipping estimate when search shipping is unknown', async () => {
     const { outcome, getItemCalls } = await run(undefined, undefined, {}, { shippingOptions: [] });
-    expect(outcome).toMatchObject({ status: 'rejected', reasons: ['shipping_unknown'] });
+    expect(outcome.status).toBe('recommended');
+    expect(getItemCalls()).toBe(1);
+  });
+
+  it('rejects at stage 1 when the shipping estimate pushes the pre-score under the bar', async () => {
+    const { outcome, getItemCalls } = await run(undefined, undefined, { settings: { stage1ShippingEstimate: 200 } }, { shippingOptions: [] });
+    expect(outcome.status).toBe('rejected');
     expect(getItemCalls()).toBe(0);
   });
 

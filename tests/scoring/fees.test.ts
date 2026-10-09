@@ -18,6 +18,10 @@ describe('fees', () => {
   it('buy total includes shipping and tax', () => {
     expect(buyTotal(350, 5, 0.07)).toBe(379.85);
   });
+  it('buy total adds the FX fee on top of tax', () => {
+    expect(buyTotal(350, 5, 0.14975, 0.025)).toBe(417.04);
+    expect(buyTotal(350, 5, 0.07, 0)).toBe(buyTotal(350, 5, 0.07));
+  });
   it('net profit = sale - costs - buy total', () => {
     expect(netProfit(EBAY, 600, 379.85)).toBe(133.75);
   });

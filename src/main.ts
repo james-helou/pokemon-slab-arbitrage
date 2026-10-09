@@ -9,6 +9,7 @@ import { deliverPending } from './discord/delivery.js';
 import { createAccountDeletionHandler } from './http/account-deletion.js';
 import { startHttpServer, type HttpServer } from './http/server.js';
 import { log } from './log.js';
+import { createUsdCadRate } from './fx/frankfurter.js';
 import { every } from './loop.js';
 import { getValuation } from './oracle/oracle.js';
 import { buildOracleDeps } from './oracle/oracle-wiring.js';
@@ -50,6 +51,9 @@ async function main() {
   // SOLD_CHECK=off (default) wires nothing; on adds the guarded eBay sold check for alert candidates only.
   const soldCheck = buildSoldCheckDep(cfg, { db, now, log, fetch });
 
+  // Canadian buyer: alerts also show CAD amounts at the daily-ish ECB rate.
+  const usdCad = cfg.EBAY_BUYER_COUNTRY === 'CA' ? createUsdCadRate({ fetch, now, log }) : undefined;
+
   const bot = await startBot({
     token: cfg.DISCORD_TOKEN, appId: cfg.DISCORD_APP_ID, guildId: cfg.DISCORD_GUILD_ID,
     channelIds: { alerts: cfg.DISCORD_ALERT_CHANNEL_ID, over_budget: cfg.DISCORD_OVERBUDGET_CHANNEL_ID },
@@ -71,7 +75,7 @@ async function main() {
   const stopDeliver = every(
     async () => (await loadSettings(db)).deliveryIntervalSeconds * 1000,
     async () => {
-      const r = await deliverPending({ db, send: bot.send, now, log });
+      const r = await deliverPending({ db, send: bot.send, now, log, ...(usdCad ? { usdCad } : {}) });
       if (r.sent || r.failed) log('info', 'deliveries', r);
     },
     log,

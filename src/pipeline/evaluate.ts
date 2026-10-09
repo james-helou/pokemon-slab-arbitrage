@@ -68,11 +68,10 @@ export async function evaluateListing(
     return { status: 'rejected', reasons: ['stale_valuation'] };
   }
 
-  if (listing.shipping === null) return { status: 'rejected', reasons: ['shipping_unknown'] };
-
   const cash = await availableCash(db);
+  // Search summaries often carry no shipping (calculated rates); pre-score with the estimate. Stage 2 uses the real cost.
   const pre = score({
-    price: listing.price, shipping: listing.shipping, valuation, matchConfidence: first.match.confidence,
+    price: listing.price, shipping: listing.shipping ?? settings.stage1ShippingEstimate, valuation, matchConfidence: first.match.confidence,
     redFlags: [], channels, settings, availableCash: cash,
   });
   if (pre.decision === 'reject') return { status: 'rejected', reasons: pre.rejectReasons };

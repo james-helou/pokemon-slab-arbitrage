@@ -3,7 +3,7 @@ import type { RedFlag, Valuation } from '../domain/types.js';
 import type { Settings } from '../settings/settings.js';
 import { buyTotal as computeBuyTotal, netProfit, round2 } from './fees.js';
 
-export const SCORER_VERSION = 'v1.0.0';
+export const SCORER_VERSION = 'v1.1.0';
 
 export interface ChannelNet {
   channel: string;
@@ -19,7 +19,7 @@ export interface ScoreInput {
   matchConfidence: number;
   redFlags: RedFlag[];
   channels: Channel[];
-  settings: Pick<Settings, 'minNet' | 'minRoi' | 'alertRatio' | 'valueFloor' | 'buyTaxRate'>;
+  settings: Pick<Settings, 'minNet' | 'minRoi' | 'alertRatio' | 'valueFloor' | 'buyTaxRate' | 'fxFeePct'>;
   availableCash: number;
 }
 
@@ -52,7 +52,7 @@ export function score(input: ScoreInput): ScoreResult {
       scorerVersion: SCORER_VERSION,
     };
   }
-  const bt = computeBuyTotal(input.price, input.shipping, settings.buyTaxRate);
+  const bt = computeBuyTotal(input.price, input.shipping, settings.buyTaxRate, settings.fxFeePct);
 
   const channelNets: ChannelNet[] = input.channels
     .filter((c) => c.enabled)

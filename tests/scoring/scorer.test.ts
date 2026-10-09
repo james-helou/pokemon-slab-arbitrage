@@ -10,7 +10,7 @@ const base: ScoreInput = {
   matchConfidence: 0.9,
   redFlags: [],
   channels: [EBAY, TCGPLAYER, LOCAL_DISABLED],
-  settings: DEFAULT_SETTINGS,
+  settings: { ...DEFAULT_SETTINGS, buyTaxRate: 0.07 },
   availableCash: 500,
 };
 
@@ -26,6 +26,18 @@ describe('score', () => {
     expect(r.rank).toBe(96.3);
     expect(r.channelNets.map((c) => c.channel)).toEqual(['ebay', 'tcgplayer']);
     expect(r.scorerVersion).toMatch(/^v\d/);
+  });
+
+  it('applies the FX fee to the buy total', () => {
+    const r = score({ ...base, settings: { ...base.settings, fxFeePct: 0.025 } });
+    expect(r.buyTotal).toBe(388.73);
+    expect(r.scorerVersion).toBe('v1.1.0');
+  });
+
+  it('defaults to Quebec tax (GST 5% + QST 9.975%) and no FX fee', () => {
+    expect(DEFAULT_SETTINGS.buyTaxRate).toBe(0.14975);
+    expect(DEFAULT_SETTINGS.fxFeePct).toBe(0);
+    expect(score({ ...base, settings: DEFAULT_SETTINGS }).buyTotal).toBe(408.16);
   });
 
   it('routes to over_budget when buy total exceeds available cash', () => {

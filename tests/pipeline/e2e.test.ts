@@ -7,6 +7,7 @@ import { silentLog } from '../../src/log.js';
 import { loadFixtureCompsSource } from '../../src/oracle/comps-source.js';
 import { getValuation } from '../../src/oracle/oracle.js';
 import { scanCycle } from '../../src/pipeline/scan-cycle.js';
+import { setSetting } from '../../src/settings/settings.js';
 import { createBudget } from '../../src/sources/ebay/budget.js';
 import type { EbayItem, EbayItemSummary } from '../../src/sources/ebay/ebay-client.js';
 import { createTestDb } from '../helpers/test-db.js';
@@ -17,6 +18,7 @@ const now = () => new Date('2026-10-03T12:00:00Z');
 async function setup(summary: EbayItemSummary, item: EbayItem) {
   const db = await createTestDb();
   await seedCards(db);
+  await setSetting(db, 'buyTaxRate', 0.07); // numbers below predate the Quebec default
   await handleCommand({ db, ebayUsedToday: async () => 0 }, 'deposit', { amount: 500 });
   const source = await loadFixtureCompsSource('data/comps-fixture.json', now);
   const deps = {
