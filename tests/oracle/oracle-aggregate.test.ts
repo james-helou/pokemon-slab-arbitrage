@@ -101,4 +101,15 @@ describe('getValuation spend flag', () => {
     await getValuation({ db, source: comps, aggregate, now: clock }, KEY, DEFAULT_SETTINGS, { spend: false });
     expect(aggregate.calls).toBe(1);
   });
+
+  it('spend:false does not persist an own-comps valuation (it would block the vendor until it ages out); default still does', async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    const aggregate = aggSource(null);
+    const free = await getValuation({ db, source: comps, aggregate, now: clock }, KEY, DEFAULT_SETTINGS, { spend: false });
+    expect(free).toMatchObject({ compsSource: 'fixture' });
+    expect((await db.query('select 1 from valuations')).rows).toHaveLength(0);
+    await getValuation({ db, source: comps, aggregate, now: clock }, KEY, DEFAULT_SETTINGS);
+    expect((await db.query('select 1 from valuations')).rows).toHaveLength(1);
+  });
 });

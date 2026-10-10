@@ -95,6 +95,7 @@ export async function getValuation(
   if (!computed) return null;
 
   const v: Valuation = { ...key, ...computed, compsSource: deps.source.name, oracleVersion: ORACLE_VERSION, computedAt: now };
-  await persistValuation(db, v);
+  // A free (spend:false) call must not cache an own-comps valuation: it would shadow the vendor for this key until it ages out.
+  if (opts?.spend !== false) await persistValuation(db, v);
   return v;
 }
