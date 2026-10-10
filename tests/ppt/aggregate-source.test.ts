@@ -11,7 +11,7 @@ const SECRET = 'ppt-s3cret';
 
 const tcgdexRaw = (variants: unknown[]) => new Response(JSON.stringify({ variants_detailed: variants }), { status: 200 });
 const tcgdexOk = (ids: (number | string)[] = [555]) =>
-  new Response(JSON.stringify({ variants_detailed: ids.map((id) => ({ thirdParty: { tcgplayer: id } })) }), { status: 200 });
+  new Response(JSON.stringify({ variants_detailed: ids.map((id) => ({ type: 'normal', thirdParty: { tcgplayer: id } })) }), { status: 200 });
 
 const card = (ebay: Record<string, unknown>, over: Record<string, unknown> = {}) => ({
   data: [{ tcgPlayerId: '555', name: 'X', ebay, ...over }],
