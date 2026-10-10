@@ -28,13 +28,24 @@ describe('pptTcgplayerId (real TCGdex shapes, verified 2026-10-10)', () => {
     expect(await pptTcgplayerId(respond({ variants_detailed: [v('normal', null, null)] }), 'sm5-164')).toBeNull();
   });
 
-  it('drops reverse, 1st edition and first-edition variants too, and tolerates missing fields', async () => {
+  it('allow-list: reverse, 1st edition and unknown variants are dropped, and missing fields are tolerated', async () => {
     const body = { variants_detailed: [
       v('reverse', null, 2), v('normal', '1st-edition', 3), v('holo', 'First Edition', 4),
-      { thirdParty: { tcgplayer: 9 } }, { type: 'normal' }, { type: 'normal', subtype: 'unlimited', thirdParty: { tcgplayer: '' } },
+      { thirdParty: { tcgplayer: 9 } }, { type: 'normal' }, { type: 'Holofoil', subtype: 'Unlimited', thirdParty: { tcgplayer: 7 } },
+      { type: 'normal', subtype: 'unlimited', thirdParty: { tcgplayer: '' } },
     ] };
-    expect(await pptTcgplayerId(respond(body), 'x')).toBe('9');
+    expect(await pptTcgplayerId(respond(body), 'x')).toBe('7');
     expect(await pptTcgplayerId(respond({}), 'x')).toBeNull();
+  });
+
+  it('allow-list: an unknown subtype (staff-stamp) is not trusted, so the lone id-less normal print gives null', async () => {
+    const body = { variants_detailed: [v('normal', null, null), v('normal', 'staff-stamp', 12345)] };
+    expect(await pptTcgplayerId(respond(body), 'x')).toBeNull();
+  });
+
+  it('allow-list: a reverse holo is dropped, leaving the normal print', async () => {
+    const body = { variants_detailed: [v('normal', null, 1), v('reverse', null, 2)] };
+    expect(await pptTcgplayerId(respond(body), 'x')).toBe('1');
   });
 
   it('404 is null; any other failure is error (nothing to cache)', async () => {
