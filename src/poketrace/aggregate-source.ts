@@ -69,6 +69,7 @@ export interface PoketraceAggregateDeps {
 export function poketraceAggregateSource(deps: PoketraceAggregateDeps): AggregatePriceSource {
   const maxAgeMs = (deps.maxAgeHours ?? DEFAULT_MAX_AGE_HOURS) * 3_600_000;
   return {
+    // The optional second argument (spend) is ignored: PokeTrace has no metered daily budget.
     async fetchAggregate(key: ValuationKey & { gradeLabel?: Key['gradeLabel'] }): Promise<AggregatePrice | null> {
       const tier = tierKey(key);
       // Currently unreachable: evaluate's gate rejects labelled grades (Pristine / Black Label) before valuation. Kept

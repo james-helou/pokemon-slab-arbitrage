@@ -48,7 +48,7 @@ async function main() {
   });
   // COMPS_SOURCE picks fixture (sample comps) or poketrace (aggregates + own DB comps, fixture excluded).
   const oracle = await buildOracleDeps(cfg, { db, now, log, fetch });
-  const valuate: EvaluateDeps['valuate'] = (key, settings) => getValuation(oracle, key, settings);
+  const valuate: EvaluateDeps['valuate'] = (key, settings, opts) => getValuation(oracle, key, settings, opts);
   // Free TCGdex raw price: pre-filters hopeless listings before the paid valuation call (all comps sources).
   const rawPrice: NonNullable<EvaluateDeps['rawPrice']> = (cardId) => getRawPrice({ db, fetch, now, log }, cardId);
   // SOLD_CHECK=off (default) wires nothing; on adds the guarded eBay sold check for alert candidates only.

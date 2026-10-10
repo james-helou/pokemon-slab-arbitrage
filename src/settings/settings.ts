@@ -15,6 +15,12 @@ export interface Settings {
   stage1ShippingEstimate: number;
   /** Max plausible graded price as a multiple of the raw (TCGdex) price, by grade ("10", "9.5", ...; "default" otherwise). */
   rawCeilingMultipliers: Record<string, number>;
+  /**
+   * Promise triage: the best plausible graded price as a multiple of raw (about the measured p90 of PSA/raw ratios,
+   * 9.5 and default are guesses). A listing whose buy cost is above alertRatio * raw * this cannot be a deal, so it
+   * does not spend PPT credits.
+   */
+  rawPromiseMultipliers: Record<string, number>;
   /** Multiplier applied to comps whose real price may be hidden (accepted Best Offers). Not applied to paid_source. */
   boDiscount: number;
   valuationMaxAgeHours: number;
@@ -63,6 +69,7 @@ export const DEFAULT_SETTINGS: Settings = {
   fxFeePct: 0,
   stage1ShippingEstimate: 35,
   rawCeilingMultipliers: { '10': 25, '9.5': 10, '9': 8, default: 4 },
+  rawPromiseMultipliers: { '10': 8, '9.5': 4, '9': 2, default: 2 },
   boDiscount: 0.92,
   valuationMaxAgeHours: 24,
   minCompCount: 3,
@@ -117,8 +124,7 @@ const MAXIMUMS: Partial<Record<keyof Settings, number>> = {
 };
 
 /** Non-object -> defaults; a non-positive/non-numeric entry -> that key's default. */
-function loadMultipliers(value: unknown): Record<string, number> {
-  const dflt = DEFAULT_SETTINGS.rawCeilingMultipliers;
+function loadMultipliers(value: unknown, dflt: Record<string, number>): Record<string, number> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { ...dflt };
   const out: Record<string, number> = {};
   for (const [k, v] of Object.entries(value)) {
@@ -140,7 +146,7 @@ export async function loadSettings(db: Db): Promise<Settings> {
         ? Math.min(Math.max(value, MINIMUMS[key] ?? -Infinity), MAXIMUMS[key] ?? Infinity)
         : dflt;
     }
-    if (key === 'rawCeilingMultipliers') value = loadMultipliers(value);
+    if (key === 'rawCeilingMultipliers' || key === 'rawPromiseMultipliers') value = loadMultipliers(value, DEFAULT_SETTINGS[key]);
     (out as unknown as Record<string, unknown>)[key] = value;
   }
   return out;

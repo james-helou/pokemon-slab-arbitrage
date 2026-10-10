@@ -14,6 +14,14 @@ export interface AggregatePrice {
   sourceName: string;
 }
 
+export interface AggregateFetchOptions {
+  /**
+   * Default true. false = free lookups only: a source with a metered budget (PPT) may serve its cache but must not
+   * spend anything. Sources without a budget ignore it.
+   */
+  spend?: boolean;
+}
+
 /** A vendor that returns pre-aggregated sold prices for a graded card instead of individual sales. */
 export interface AggregatePriceSource {
   /**
@@ -22,5 +30,8 @@ export interface AggregatePriceSource {
    * sources should return null for vendor failures. Prices are raw sold prices: the oracle applies the Best Offer
    * discount.
    */
-  fetchAggregate(key: ValuationKey & { gradeLabel?: 'pristine' | 'black_label' | null }): Promise<AggregatePrice | null>;
+  fetchAggregate(
+    key: ValuationKey & { gradeLabel?: 'pristine' | 'black_label' | null },
+    opts?: AggregateFetchOptions,
+  ): Promise<AggregatePrice | null>;
 }

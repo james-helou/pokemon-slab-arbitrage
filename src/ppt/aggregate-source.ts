@@ -1,7 +1,7 @@
 import type { Db } from '../db/db.js';
 import type { ValuationKey } from '../domain/types.js';
 import type { Log } from '../log.js';
-import type { AggregatePrice, AggregatePriceSource } from '../oracle/aggregate-source.js';
+import type { AggregateFetchOptions, AggregatePrice, AggregatePriceSource } from '../oracle/aggregate-source.js';
 import { tcgplayerIds } from '../poketrace/mapping.js';
 import { PptHttpError, PptUnavailableError, type PptClient } from './client.js';
 
@@ -146,7 +146,8 @@ export interface PptAggregateDeps {
  * per UTC day). A cache row per card in vendor_card_cache holds {tcgplayerId, response}: positive < 24h serves any
  * grade for free (re-checked against the requested id); negative (body null: no/ambiguous tcgplayer id, empty data, 404,
  * wrong card) < 7 days returns null for free; a 'failed' marker (5xx, timeout, network, 429) holds for 1 hour so the
- * same card is not re-paid for. Never throws: any failure logs one key-free warn line and returns null so the comps
+ * same card is not re-paid for. `spend: false` serves a fresh positive cache row or null and touches nothing else.
+ * Never throws: any failure logs one key-free warn line and returns null so the comps
  * path runs.
  */
 export function pptAggregateSource(deps: PptAggregateDeps): AggregatePriceSource {
@@ -161,7 +162,7 @@ export function pptAggregateSource(deps: PptAggregateDeps): AggregatePriceSource
     );
   }
   return {
-    async fetchAggregate(key: ValuationKey & { gradeLabel?: Key['gradeLabel'] }): Promise<AggregatePrice | null> {
+    async fetchAggregate(key: ValuationKey & { gradeLabel?: Key['gradeLabel'] }, opts?: AggregateFetchOptions): Promise<AggregatePrice | null> {
       if (key.gradeLabel) return null;
       try {
         const now = deps.now();
@@ -175,6 +176,8 @@ export function pptAggregateSource(deps: PptAggregateDeps): AggregatePriceSource
           const fetchedAt = new Date(cached.fetched_at);
           const age = now.getTime() - fetchedAt.getTime();
           const entry = cached.body as { tcgplayerId?: unknown; response?: unknown } | null;
+          // spend:false serves a fresh positive row only; anything else is null with no TCGdex, credits, HTTP or writes.
+          if (opts?.spend === false && (entry === null || age >= POSITIVE_TTL_MS)) return null;
           if (entry !== null && age < POSITIVE_TTL_MS) {
             return typeof entry.tcgplayerId === 'string'
               ? parsePptCard(entry.response, key, { now, tcgplayerId: entry.tcgplayerId, fetchedAt })
@@ -183,6 +186,7 @@ export function pptAggregateSource(deps: PptAggregateDeps): AggregatePriceSource
           if (entry === null && cached.kind === 'failed' && age < FAILED_TTL_MS) return null;
           if (entry === null && cached.kind !== 'failed' && age < NEGATIVE_TTL_MS) return null;
         }
+        if (opts?.spend === false) return null;
         if (authBlockedDay === day) return null;
 
         const ids = await tcgplayerIds(deps.fetch, key.cardId);

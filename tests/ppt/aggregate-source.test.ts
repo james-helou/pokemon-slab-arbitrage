@@ -393,3 +393,55 @@ describe('parsePptCard', () => {
     });
   });
 });
+
+describe('pptAggregateSource spend:false (cache only)', () => {
+  const noSpend = { spend: false };
+
+  it('serves a fresh positive cache row for any grade without spending, TCGdex or HTTP', async () => {
+    const body = card({ salesByGrade: { psa10: grade(), psa9: grade({ smartMarketPrice: smart(90) }) } });
+    const { src, db, calls, tcgdexCalls } = await setup({ body });
+    await src.fetchAggregate(KEY); // spends 2 and fills the cache
+    expect(await src.fetchAggregate({ ...KEY, grade: 9 }, noSpend)).toMatchObject({ value: 90 });
+    expect(calls).toHaveLength(1);
+    expect(tcgdexCalls).toHaveLength(1);
+    expect((await used(db))[0]!.credits).toBe(2);
+  });
+
+  it('returns null with no cache row: no TCGdex, no reservation, no HTTP, no cache write', async () => {
+    const { src, db, calls, tcgdexCalls } = await setup();
+    expect(await src.fetchAggregate(KEY, noSpend)).toBeNull();
+    expect(calls).toHaveLength(0);
+    expect(tcgdexCalls).toHaveLength(0);
+    expect(await used(db)).toHaveLength(0);
+    expect((await db.query('select 1 from vendor_card_cache')).rows).toHaveLength(0);
+  });
+
+  it('returns null for a stale positive row, a negative row and a failed row, writing nothing', async () => {
+    let t = NOW;
+    const { src, db, calls } = await setup({ now: () => t });
+    await src.fetchAggregate(KEY);
+    t = new Date(NOW.getTime() + 25 * 3_600_000);
+    const before = (await db.query('select fetched_at from vendor_card_cache')).rows;
+    expect(await src.fetchAggregate(KEY, noSpend)).toBeNull();
+    expect((await db.query('select fetched_at from vendor_card_cache')).rows).toEqual(before);
+    for (const kind of [null, 'failed']) {
+      await db.query(`update vendor_card_cache set body = null, kind = $1, fetched_at = $2`, [kind, t]);
+      expect(await src.fetchAggregate(KEY, noSpend)).toBeNull();
+    }
+    expect(calls).toHaveLength(1);
+  });
+
+  it('applies the identity check to the cached row', async () => {
+    const { src, db } = await setup();
+    await db.query(
+      `insert into vendor_card_cache (provider, card_id, fetched_at, body) values ('ppt', $1, $2, $3::jsonb)`,
+      [KEY.cardId, NOW, JSON.stringify({ tcgplayerId: '555', response: card({ salesByGrade: { psa10: grade() } }, { tcgPlayerId: '1' }) })],
+    );
+    expect(await src.fetchAggregate(KEY, noSpend)).toBeNull();
+  });
+
+  it('still returns null for labelled grades', async () => {
+    const { src } = await setup();
+    expect(await src.fetchAggregate({ ...KEY, gradeLabel: 'pristine' }, noSpend)).toBeNull();
+  });
+});

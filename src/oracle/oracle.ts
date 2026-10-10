@@ -1,7 +1,7 @@
 import type { Db } from '../db/db.js';
 import type { CompKind, Valuation, ValuationKey } from '../domain/types.js';
 import type { Settings } from '../settings/settings.js';
-import type { AggregatePriceSource } from './aggregate-source.js';
+import type { AggregateFetchOptions, AggregatePriceSource } from './aggregate-source.js';
 import type { CompsSource } from './comps-source.js';
 import { computeValuation, ORACLE_VERSION } from './valuation.js';
 
@@ -37,11 +37,14 @@ async function persistValuation(db: Db, v: Valuation): Promise<void> {
   );
 }
 
-/** Throws if the comps source fails; callers must skip the listing (never alert on stale data). */
+/**
+ * `opts.spend: false` is forwarded to the aggregate source (free lookups only); cached valuations and own comps are
+ * always free. Throws if the comps source fails; callers must skip the listing (never alert on stale data). */
 export async function getValuation(
   deps: OracleDeps,
   key: ValuationKey,
   settings: Pick<Settings, 'valuationMaxAgeHours' | 'boDiscount' | 'minCompCount'>,
+  opts?: AggregateFetchOptions,
 ): Promise<Valuation | null> {
   const { db } = deps;
   const now = deps.now();
@@ -55,7 +58,7 @@ export async function getValuation(
   if (cached.rows[0]) return rowToValuation(cached.rows[0]);
 
   if (deps.aggregate) {
-    const a = await deps.aggregate.fetchAggregate(key);
+    const a = await (opts ? deps.aggregate.fetchAggregate(key, opts) : deps.aggregate.fetchAggregate(key));
     if (a && a.saleCount >= settings.minCompCount) {
       // eBay sold aggregates include accepted Best Offers at the list price: same discount as non-paid comps.
       const bo = (n: number) => Math.round(n * settings.boDiscount * 100) / 100;

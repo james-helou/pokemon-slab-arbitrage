@@ -13,8 +13,11 @@ const clock = () => NOW;
 const agg = (over: Partial<AggregatePrice> = {}): AggregatePrice => ({
   value: 335, low: 280, high: 400, saleCount: 12, windowDays: 30, confidence: 0.8, asOf: NOW, sourceName: 'poketrace', ...over,
 });
-const aggSource = (r: AggregatePrice | null | Error): AggregatePriceSource & { calls: number } => {
-  const s = { calls: 0, fetchAggregate: async () => { s.calls++; if (r instanceof Error) throw r; return r; } };
+const aggSource = (r: AggregatePrice | null | Error): AggregatePriceSource & { calls: number; opts: unknown[] } => {
+  const s = {
+    calls: 0, opts: [] as unknown[],
+    fetchAggregate: async (_k: unknown, opts?: unknown) => { s.calls++; s.opts.push(opts); if (r instanceof Error) throw r; return r; },
+  };
   return s;
 };
 const comps = fixtureCompsSource([{ ...KEY, sales: [100, 110, 120, 130].map((price, i) => ({ price, daysAgo: i + 1 })) }], clock);
@@ -79,3 +82,23 @@ describe('getValuation with an aggregate source', () => {
   });
 });
 
+describe('getValuation spend flag', () => {
+  it('forwards spend to the aggregate source, defaulting to spend:true behaviour (no option)', async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    const aggregate = aggSource(null);
+    await getValuation({ db, source: comps, aggregate, now: clock }, KEY, DEFAULT_SETTINGS);
+    await getValuation({ db, source: comps, aggregate, now: clock }, { ...KEY, grade: 9 }, DEFAULT_SETTINGS, { spend: false });
+    expect(aggregate.opts[0]).toBeUndefined();
+    expect(aggregate.opts[1]).toEqual({ spend: false });
+  });
+
+  it('a cached valuation does not consult the aggregate at all, with or without spend', async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    const aggregate = aggSource(agg());
+    await getValuation({ db, source: comps, aggregate, now: clock }, KEY, DEFAULT_SETTINGS);
+    await getValuation({ db, source: comps, aggregate, now: clock }, KEY, DEFAULT_SETTINGS, { spend: false });
+    expect(aggregate.calls).toBe(1);
+  });
+});

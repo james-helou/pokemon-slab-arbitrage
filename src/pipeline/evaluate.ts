@@ -17,7 +17,8 @@ import { isOutOfStock, mergeItemDetails } from '../sources/ebay/normalize.js';
 export interface EvaluateDeps {
   db: Db;
   ebay: Pick<EbayClient, 'getItem'>;
-  valuate: (key: ValuationKey, settings: Settings) => Promise<Valuation | null>;
+  /** opts.spend false = free lookups only (cache); the caller has judged the listing unpromising. */
+  valuate: (key: ValuationKey, settings: Settings, opts?: { spend?: boolean }) => Promise<Valuation | null>;
   now: () => Date;
   log: Log;
   /** SOLD_CHECK=on only. Absent: behaviour is exactly as before. Present: may demote an alert, never promote one. */
@@ -65,6 +66,8 @@ export async function evaluateListing(
 
   const key: ValuationKey = { cardId: first.match.cardId, grader: first.match.grader, grade: first.match.grade };
   const rawUsd = deps.rawPrice ? await deps.rawPrice(key.cardId) : null;
+  // Unknown raw price: cannot judge, so spend as before.
+  let promising = true;
   if (rawUsd !== null) {
     const mults = settings.rawCeilingMultipliers;
     const fallback = DEFAULT_SETTINGS.rawCeilingMultipliers;
@@ -75,10 +78,16 @@ export async function evaluateListing(
     if (listing.price + shipping > settings.alertRatio * ceiling) {
       return { status: 'rejected', reasons: ['price_above_raw_ceiling'] };
     }
+    // Promise triage: even at the best plausible graded price (p90 of measured ratios) this could not clear the alert
+    // ratio, so do not spend a metered vendor credit on it.
+    const promiseMults = settings.rawPromiseMultipliers;
+    const promiseMult = promiseMults[String(key.grade)] ?? promiseMults['default'] ?? DEFAULT_SETTINGS.rawPromiseMultipliers['default']!;
+    const cost = (listing.price + shipping) * (1 + settings.buyTaxRate + settings.fxFeePct);
+    promising = cost <= settings.alertRatio * rawUsd * promiseMult;
   }
 
-  const valuation = await deps.valuate(key, settings);
-  if (!valuation) return { status: 'no_valuation', reasons: [] };
+  const valuation = await deps.valuate(key, settings, { spend: promising });
+  if (!valuation) return { status: 'no_valuation', reasons: promising ? [] : ['not_promising'] };
   if (deps.now().getTime() - valuation.computedAt.getTime() > settings.valuationMaxAgeHours * 3_600_000) {
     return { status: 'rejected', reasons: ['stale_valuation'] };
   }

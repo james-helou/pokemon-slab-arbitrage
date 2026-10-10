@@ -108,3 +108,19 @@ describe('rawCeilingMultipliers setting', () => {
     expect((await loadSettings(db)).pptDailyCredits).toBe(0);
   });
 });
+
+describe('rawPromiseMultipliers setting', () => {
+  it('defaults to the measured p90 ratios, loads a valid object, and falls back per key on bad values', async () => {
+    const { createTestDb } = await import('../helpers/test-db.js');
+    const db = await createTestDb();
+    const put = (v: string) => db.query(`insert into settings (key, value) values ('rawPromiseMultipliers', $1::jsonb) on conflict (key) do update set value = excluded.value`, [v]);
+    expect(DEFAULT_SETTINGS.rawPromiseMultipliers).toEqual({ '10': 8, '9.5': 4, '9': 2, default: 2 });
+    expect((await loadSettings(db)).rawPromiseMultipliers).toEqual(DEFAULT_SETTINGS.rawPromiseMultipliers);
+    await put('{"10": 6, "default": 3}');
+    expect((await loadSettings(db)).rawPromiseMultipliers).toEqual({ '10': 6, default: 3 });
+    await put('{"10": -1, "9": "x", "default": 5}');
+    expect((await loadSettings(db)).rawPromiseMultipliers).toEqual({ '10': 8, '9': 2, default: 5 });
+    await put('"nope"');
+    expect((await loadSettings(db)).rawPromiseMultipliers).toEqual(DEFAULT_SETTINGS.rawPromiseMultipliers);
+  });
+});

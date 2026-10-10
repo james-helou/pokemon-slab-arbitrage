@@ -18,16 +18,25 @@ const VALUATION: Valuation = {
   newestCompAgeDays: 1, confidence: 0.893, compsSource: 'fixture', oracleVersion: 'v1.0.0', computedAt: NOW,
 };
 
-async function run(raw: number | null | undefined, settings: Partial<Settings> = {}, summary: Partial<EbayItemSummary> = {}) {
+type Valuate = (key: unknown, settings: unknown, opts?: { spend?: boolean }) => Promise<Valuation | null>;
+
+async function run(
+  raw: number | null | undefined, settings: Partial<Settings> = {}, summary: Partial<EbayItemSummary> = {}, valuate?: Valuate,
+) {
   const db = await createTestDb();
   await seedCards(db);
   await addEntry(db, { kind: 'deposit', amount: 500 });
   let valuateCalls = 0;
   let rawCalls = 0;
+  const spends: (boolean | undefined)[] = [];
   const deps = {
     db,
     ebay: { getItem: async () => ITEM },
-    valuate: async () => { valuateCalls++; return VALUATION; },
+    valuate: async (key: unknown, st: unknown, opts?: { spend?: boolean }) => {
+      valuateCalls++;
+      spends.push(opts?.spend);
+      return valuate ? valuate(key, st, opts) : VALUATION;
+    },
     now: () => NOW,
     log: silentLog,
     ...(raw === undefined ? {} : { rawPrice: async () => { rawCalls++; return raw; } }),
@@ -37,7 +46,7 @@ async function run(raw: number | null | undefined, settings: Partial<Settings> =
   const outcome = await evaluateListing(
     deps, listing, { ...DEFAULT_SETTINGS, buyTaxRate: 0.07, ...settings }, await loadChannels(db),
   );
-  return { db, outcome, valuateCalls: () => valuateCalls, rawCalls: () => rawCalls };
+  return { db, outcome, spends, valuateCalls: () => valuateCalls, rawCalls: () => rawCalls };
 }
 
 describe('evaluateListing raw-price pre-filter', () => {
@@ -84,5 +93,48 @@ describe('evaluateListing raw-price pre-filter', () => {
     expect(a.rawCalls()).toBe(1);
     expect((await getRecommendation(a.db, a.outcome.recommendationId!))?.redFlags).not.toContain('graded_below_raw');
     expect((await run(undefined)).outcome.status).toBe('recommended');
+  });
+});
+
+describe('evaluateListing promise triage (spend flag)', () => {
+  // SUMMARY is a 350 USD listing; the buy cost is (350 + shipping) * (1 + 0.07 + fx 0). PSA 10 promise multiplier is 8.
+  it('passes spend:true for a promising listing (cost <= alertRatio * raw * promise multiplier)', async () => {
+    const r = await run(100); // estimate 800, 0.8 * 800 = 640 >= ~375
+    expect(r.spends).toEqual([true]);
+    expect(r.outcome.status).toBe('recommended');
+  });
+
+  it('passes spend:false for an unpromising listing and still uses a cached valuation if one comes back', async () => {
+    const r = await run(50); // estimate 400, 0.8 * 400 = 320 < cost; ceiling 1250 still passes the old pre-filter
+    expect(r.spends).toEqual([false]);
+    expect(r.outcome.status).toBe('recommended');
+  });
+
+  it('returns no_valuation with not_promising when the free path has nothing', async () => {
+    const r = await run(50, {}, {}, async () => null);
+    expect(r.spends).toEqual([false]);
+    expect(r.outcome).toEqual({ status: 'no_valuation', reasons: ['not_promising'] });
+  });
+
+  it('a promising listing with no valuation keeps the plain no_valuation reason', async () => {
+    const r = await run(100, {}, {}, async () => null);
+    expect(r.outcome).toEqual({ status: 'no_valuation', reasons: [] });
+  });
+
+  it('unknown raw price spends (today\'s behaviour)', async () => {
+    const r = await run(null, {}, {}, async () => null);
+    expect(r.spends).toEqual([true]);
+    expect(r.outcome).toEqual({ status: 'no_valuation', reasons: [] });
+  });
+
+  it('uses rawPromiseMultipliers by grade, falling back to default, and includes tax and fx fee in the cost', async () => {
+    // raw 100, PSA 10 multiplier overridden to 3: estimate 300, 0.8 * 300 = 240 < cost
+    expect((await run(100, { rawPromiseMultipliers: { '10': 3, default: 2 } })).spends).toEqual([false]);
+    // multiplier 5: estimate 500 -> 400 >= cost ~375 with tax 0.07 ...
+    expect((await run(100, { rawPromiseMultipliers: { '10': 5, default: 2 } })).spends).toEqual([true]);
+    // ... but a 10% fx fee pushes cost over 400
+    expect((await run(100, { rawPromiseMultipliers: { '10': 5, default: 2 }, fxFeePct: 0.1 })).spends).toEqual([false]);
+    // missing grade key falls back to default 2: estimate 200 -> not promising
+    expect((await run(100, { rawPromiseMultipliers: { default: 2 } })).spends).toEqual([false]);
   });
 });
