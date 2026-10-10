@@ -64,7 +64,8 @@ export async function dueOutcomes(db: Db, now: Date, limit: number): Promise<Due
        array_agg(h.horizon order by h.horizon) as horizons
      from recommendations r
      cross join (values ${HORIZON_VALUES}) as h(horizon)
-     where r.created_at + make_interval(days => h.horizon) <= $1::timestamptz
+     where r.kind <> 'auction'
+       and r.created_at + make_interval(days => h.horizon) <= $1::timestamptz
        and not exists (select 1 from outcomes o where o.recommendation_id = r.id and o.horizon_days = h.horizon)
      group by r.id
      order by r.created_at, r.id

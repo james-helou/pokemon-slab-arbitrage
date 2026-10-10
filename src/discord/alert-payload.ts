@@ -77,18 +77,39 @@ export function buildAlertPayload(r: StoredRecommendation, opts?: { usdCad?: num
       `Send it yourself on eBay. Highest offer that still clears the rules: ${usd(r.listingSnapshot.maxOffer ?? offer)}.`,
   }];
 
+  const auction = r.kind === 'auction' && r.suggestedPrice != null && r.listingSnapshot.auction ? r.listingSnapshot.auction : null;
+  const auctionFields: NonNullable<APIEmbed['fields']> = auction === null ? [] : [
+    (() => {
+      const unix = Math.floor(new Date(auction.endsAt).getTime() / 1000);
+      return { name: 'Ends', value: `<t:${unix}:R> (<t:${unix}:t>)` };
+    })(),
+    { name: 'Current bid', value: `${usd(auction.currentBid)} (${auction.bidCount} ${auction.bidCount === 1 ? 'bid' : 'bids'})${cadSuffix(auction.currentBid, rate)}` },
+    (() => {
+      const max = r.suggestedPrice!;
+      const t = r.listingSnapshot.ceilingTerms;
+      const rules = t
+        ? ` and ${+(t.taxRate * 100).toFixed(3)}% tax (buy total ${usd(r.buyTotal)}) still clears net ${usd(t.minNet).replace(/\.00$/, '')} and ROI ${Math.round(t.minRoi * 100)}%`
+        : ` (buy total ${usd(r.buyTotal)}) is the most you should pay`;
+      return {
+        name: 'Max bid',
+        value: `${usd(max)}${cadSuffix(max, rate)}\nAll-in ceiling: winning at this price plus ${r.listingSnapshot.shipping === null ? 'shipping' : `${usd(r.listingSnapshot.shipping)} shipping`}${rules}. Bid it yourself on eBay.`,
+      };
+    })(),
+  ];
+
   const fields: NonNullable<APIEmbed['fields']> = [
     ...offerField,
+    ...auctionFields,
     {
-      name: offer === null ? 'Buy total' : 'Buy total at offer',
-      value: `${usd(r.buyTotal)}${cadSuffix(r.buyTotal, rate)} (${offer === null ? 'list' : 'offer'} ${usd(offer ?? r.listingSnapshot.price)} + ${ship} + tax)`,
+      name: auction !== null ? 'Buy total at max bid' : offer === null ? 'Buy total' : 'Buy total at offer',
+      value: `${usd(r.buyTotal)}${cadSuffix(r.buyTotal, rate)} (${auction !== null ? 'max bid' : offer === null ? 'list' : 'offer'} ${usd(auction !== null ? r.suggestedPrice! : offer ?? r.listingSnapshot.price)} + ${ship} + tax)`,
     },
     {
       name: 'Market value',
       value: `${usd(v.value)} (range ${usd(v.low)} to ${usd(v.high)}, ${v.compCount} comps, newest ${Math.round(v.newestCompAgeDays)}d)`,
     },
     ...(r.soldCheck ? [{ name: 'Sold check', value: soldCheckLine(r.soldCheck, v.value, r.createdAt) }] : []),
-    { name: 'Best net', value: `${usd(r.bestNet)} via ${r.bestChannel} · ROI ${Math.round(r.roi * 100)}%${cadSuffix(r.bestNet, rate)}`, inline: true },
+    { name: auction === null ? 'Best net' : 'Best net at max bid', value: `${usd(r.bestNet)} via ${r.bestChannel} · ROI ${Math.round(r.roi * 100)}%${cadSuffix(r.bestNet, rate)}`, inline: true },
     { name: 'Confidence', value: `${Math.round(r.confidence * 100)}%`, inline: true },
     { name: 'Net by channel', value: nets || 'none' },
     { name: 'Cert', value: r.cert ?? 'not listed', inline: true },
@@ -97,8 +118,8 @@ export function buildAlertPayload(r: StoredRecommendation, opts?: { usdCad?: num
   if (r.redFlags.length > 0) fields.push({ name: 'Red flags', value: r.redFlags.join(', '), inline: true });
 
   const embed: APIEmbed = {
-    title: `${offer === null ? '' : 'MAKE AN OFFER · '}${r.grader} ${r.grade} · ${r.cardSnapshot.name} (${r.cardSnapshot.setName} #${r.cardSnapshot.number})`.slice(0, 256),
-    color: r.routedTo === 'alerts' ? (offer === null ? 0x2ecc71 : 0xf1c40f) : 0x95a5a6,
+    title: `${offer === null ? '' : 'MAKE AN OFFER · '}${auction === null ? '' : 'AUCTION · '}${r.grader} ${r.grade} · ${r.cardSnapshot.name} (${r.cardSnapshot.setName} #${r.cardSnapshot.number})`.slice(0, 256),
+    color: r.routedTo === 'alerts' ? (auction !== null ? 0x3498db : offer === null ? 0x2ecc71 : 0xf1c40f) : 0x95a5a6,
     description: r.listingSnapshot.title.slice(0, 300),
     fields: fields.map((f) => ({ ...f, value: truncate(f.value, 1024) })),
     footer: { text: `rec #${r.id} · comps: ${v.compsSource} · scorer ${r.scorerVersion}` },

@@ -1,20 +1,19 @@
 import { loadChannels } from '../channels/channels.js';
-import {
-  markEvaluated, needsEvaluation, recordEvalFailure, recordWindowMisses, upsertListing,
-} from '../listings/listings-repo.js';
+import { recordWindowMisses } from '../listings/listings-repo.js';
 import { loadSettings } from '../settings/settings.js';
 import type { Budget } from '../sources/ebay/budget.js';
 import type { EbayClient } from '../sources/ebay/ebay-client.js';
 import { summaryToListing } from '../sources/ebay/normalize.js';
-import { evaluateListing, type EvaluateDeps } from './evaluate.js';
+import type { EvaluateDeps } from './evaluate.js';
+import { ingestListing } from './ingest.js';
 
 export interface ScanDeps extends EvaluateDeps {
-  ebay: EbayClient;
+  ebay: Pick<EbayClient, 'searchNewGraded' | 'getItem'>;
   budget: Budget;
 }
 
 export interface ScanSummary {
-  status: 'ok' | 'paused' | 'throttled';
+  status: 'ok' | 'paused' | 'throttled' | 'disabled';
   seen: number;
   new: number;
   /** Open listings inside this scan's window that the scan did not return (disappearance suspects accrue here). */
@@ -45,18 +44,7 @@ export async function scanCycle(deps: ScanDeps, cycle: number): Promise<ScanSumm
     // Floor = last returned item in page order (newest-first by start time). Not the min listedAt: itemCreationDate
     // can predate the start time (GTC renewals, revisions) and one outlier would drag the floor back.
     if (listing.listedAt && !Number.isNaN(listing.listedAt.getTime())) windowFloor = listing.listedAt;
-    const { isNew } = await upsertListing(deps.db, listing, deps.now());
-    if (isNew) summary.new++;
-    if (!(await needsEvaluation(deps.db, listing))) continue;
-    try {
-      const outcome = await evaluateListing(deps, listing, settings, channels);
-      await markEvaluated(deps.db, listing, deps.now());
-      summary.outcomes[outcome.status] = (summary.outcomes[outcome.status] ?? 0) + 1;
-    } catch (err) {
-      summary.errors++;
-      await recordEvalFailure(deps.db, listing);
-      deps.log('error', 'evaluate failed', { externalId: listing.externalId, err: String(err) });
-    }
+    await ingestListing(deps, listing, settings, channels, summary);
   }
   // Only listings strictly newer than the oldest returned one are "should have been seen". No floor, no counting.
   if (windowFloor) summary.missed = await recordWindowMisses(deps.db, 'ebay', seenIds, windowFloor);

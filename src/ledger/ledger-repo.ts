@@ -24,6 +24,8 @@ export interface ListingSnapshot {
   /** Offer alerts: highest price that still clears the rules (the suggested offer is this rounded down to $5). */
   maxOffer?: number | null;
   auction?: { currentBid: number; bidCount: number; endsAt: string } | null;
+  /** Auction alerts: the rules the max bid was solved against, so the alert text never hard-codes them. */
+  ceilingTerms?: { taxRate: number; minNet: number; minRoi: number } | null;
 }
 
 export interface CardSnapshot {

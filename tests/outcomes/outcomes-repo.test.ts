@@ -44,3 +44,16 @@ describe('outcomes repo', () => {
     expect(await decisionSnapshot(db, id)).toBe('bought');
   });
 });
+
+describe('dueOutcomes kinds', () => {
+  it('returns bin and offer recommendations but not auctions', async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    const bin = (await insertRecommendation(db, makeNewRecommendation({ externalId: 'v1|1|0' })))!;
+    const offer = (await insertRecommendation(db, makeNewRecommendation({ externalId: 'v1|2|0', kind: 'offer', suggestedPrice: 300 })))!;
+    await insertRecommendation(db, makeNewRecommendation({ externalId: 'v1|3|0', kind: 'auction', suggestedPrice: 300 }));
+    const rec = (await getRecommendation(db, bin))!;
+    const due = await dueOutcomes(db, new Date(rec.createdAt.getTime() + 8 * DAY), 10);
+    expect(due.map((d) => d.id).sort()).toEqual([bin, offer].sort());
+  });
+});

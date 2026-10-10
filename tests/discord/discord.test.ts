@@ -270,3 +270,48 @@ describe('buildAlertPayload offer', () => {
   });
 });
 });
+
+describe('buildAlertPayload auction', () => {
+  const ENDS = '2026-10-03T12:40:00.000Z';
+  const unix = Math.floor(new Date(ENDS).getTime() / 1000);
+  async function auctionRec() {
+    const db = await createTestDb();
+    await seedCards(db);
+    const id = (await insertRecommendation(db, makeNewRecommendation({
+      kind: 'auction', suggestedPrice: 352.26, buyTotal: 428.01,
+      listingSnapshot: {
+        ...makeNewRecommendation().listingSnapshot, price: 200, shipping: 20,
+        auction: { currentBid: 200, bidCount: 5, endsAt: ENDS },
+        ceilingTerms: { taxRate: 0.14975, minNet: 75, minRoi: 0.2 },
+      },
+    })))!;
+    return (await getRecommendation(db, id))!;
+  }
+  const fields = (rec: Awaited<ReturnType<typeof auctionRec>>, rate?: number) =>
+    Object.fromEntries((buildAlertPayload(rec, rate ? { usdCad: rate } : undefined).embeds[0]!.fields ?? []).map((x) => [x.name, x.value]));
+
+  it('renders ends, current bid, max bid and the all-in ceiling', async () => {
+    const rec = await auctionRec();
+    const e = buildAlertPayload(rec).embeds[0]!;
+    const f = fields(rec);
+    expect(e.title).toBe('AUCTION · PSA 10 · Charizard ex (151 #199)');
+    expect(e.color).toBe(0x3498db);
+    expect(f['Ends']).toBe(`<t:${unix}:R> (<t:${unix}:t>)`);
+    expect(f['Current bid']).toBe('$200.00 (5 bids)');
+    expect(f['Max bid']).toContain('$352.26');
+    expect(f['Max bid']).toContain('$20.00 shipping');
+    expect(f['Max bid']).toContain('14.975% tax');
+    expect(f['Max bid']).toContain('buy total $428.01');
+    expect(f['Max bid']).toContain('clears net $75 and ROI 20%');
+    expect(f['Max bid']).toContain('Bid it yourself on eBay.');
+    expect(f['Max bid']).not.toContain('C$');
+    expect(Object.keys(f)).toContain('Best net at max bid');
+    expect(Object.keys(f)).not.toContain('Make an offer');
+  });
+
+  it('adds the CAD estimate only when a rate is passed', async () => {
+    const rec = await auctionRec();
+    expect(fields(rec, 1.4)['Max bid']).toContain('(≈ C$493.16)');
+    expect(fields(rec, 1.4)['Current bid']).toContain('(≈ C$280.00)');
+  });
+});

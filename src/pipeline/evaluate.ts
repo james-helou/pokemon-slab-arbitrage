@@ -9,6 +9,7 @@ import type { Log } from '../log.js';
 import { matchListing, type CandidateLookup, type SetLister } from '../matcher/matcher.js';
 import { basicRedFlags } from '../risk/basic-flags.js';
 import { decideDeal, type DealMode } from '../scoring/deal-modes.js';
+import { maxBuyPrice } from '../scoring/max-buy-price.js';
 import { score } from '../scoring/scorer.js';
 import { DEFAULT_SETTINGS, type Settings } from '../settings/settings.js';
 import { soldCheckVerdict, type SoldCheck, type SoldCheckSnapshot } from '../soldcheck/sold-check.js';
@@ -113,6 +114,17 @@ export async function evaluateListing(
   });
   if (pre.decision === 'reject') return { status: 'rejected', reasons: pre.rejectReasons };
 
+  // Auctions: the most generous case (free shipping) still has to leave room under the alert fraction, else skip getItem.
+  if (mode1 === 'auction') {
+    const optimistic = maxBuyPrice({
+      shipping: listing.shipping ?? 0, valuation, matchConfidence: first.match.confidence, redFlags: [], channels, settings,
+      availableCash: cash,
+    });
+    if (optimistic === null || listing.price > settings.auctionAlertPct * optimistic) {
+      return { status: 'rejected', reasons: ['auction_bid_too_high'] };
+    }
+  }
+
   const item = await deps.ebay.getItem(listing.externalId);
   if (!item || isOutOfStock(item)) {
     await markGone(db, listing, deps.now(), item ? 'out_of_stock' : 'not_found');
@@ -178,6 +190,15 @@ export async function evaluateListing(
       sellerFeedbackScore: enriched.sellerFeedbackScore, buyingOptions: enriched.buyingOptions ?? null,
       originalPrice: enriched.originalPrice ?? null, originalCurrency: enriched.originalCurrency ?? null,
       ...(d.kind === 'offer' ? { maxOffer: d.maxPrice } : {}),
+      ...(enriched.auction
+        ? {
+            auction: {
+              currentBid: enriched.auction.currentBid, bidCount: enriched.auction.bidCount,
+              endsAt: enriched.auction.endsAt.toISOString(),
+            },
+            ceilingTerms: { taxRate: settings.buyTaxRate + settings.fxFeePct, minNet: settings.minNet, minRoi: settings.minRoi },
+          }
+        : {}),
     },
     cardSnapshot: { name: card.name, setName: card.setName, number: card.number },
     valuationSnapshot: { ...valuation, computedAt: valuation.computedAt.toISOString() },

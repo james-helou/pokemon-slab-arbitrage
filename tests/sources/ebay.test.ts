@@ -89,6 +89,29 @@ describe('eBay client', () => {
     expect(new URL(f.reqs[0]!.url).searchParams.get('filter')).not.toContain('deliveryCountry');
   });
 
+  it('searches auctions ending soon with no price floor, soonest first', async () => {
+    const f = recordingFetch();
+    const c = client(f.fn, noBudget, { country: 'CA' });
+    await c.searchEndingAuctions(60);
+    const u = new URL(f.reqs[0]!.url);
+    expect(u.searchParams.get('filter')).toBe(
+      'buyingOptions:{AUCTION},conditionIds:{2750},itemEndDate:[..2026-10-03T13:00:00.000Z],priceCurrency:USD,deliveryCountry:CA',
+    );
+    expect(u.searchParams.get('filter')).not.toContain('price:[');
+    expect(u.searchParams.get('sort')).toBe('endingSoonest');
+    expect(u.searchParams.get('limit')).toBe('200');
+    expect(u.searchParams.get('q')).toBe('pokemon');
+    expect(u.searchParams.get('category_ids')).toBe('183454');
+    expect(f.reqs[0]!.headers['X-EBAY-C-MARKETPLACE-ID']).toBe('EBAY_US');
+  });
+
+  it('counts auction searches against the budget', async () => {
+    let n = 0;
+    const budget: Budget = { limit: 5000, beforeCall: async () => { n++; }, usedToday: async () => n };
+    await client(fakeEbayFetch({ search: {} }).fn, budget).searchEndingAuctions(60);
+    expect(n).toBe(1);
+  });
+
   it('returns an empty array when no summaries', async () => {
     expect(await client(fakeEbayFetch({ search: {} }).fn).searchNewGraded()).toEqual([]);
   });

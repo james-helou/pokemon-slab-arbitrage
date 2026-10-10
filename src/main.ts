@@ -14,6 +14,7 @@ import { every } from './loop.js';
 import { getValuation } from './oracle/oracle.js';
 import { buildOracleDeps } from './oracle/oracle-wiring.js';
 import { runOutcomes } from './outcomes/outcome-tracker.js';
+import { auctionScan } from './pipeline/auction-scan.js';
 import type { EvaluateDeps } from './pipeline/evaluate.js';
 import { getRawPrice } from './rawprice/raw-price.js';
 import { scanCycle } from './pipeline/scan-cycle.js';
@@ -74,6 +75,15 @@ async function main() {
     },
     log,
     'scan',
+  );
+  const stopAuction = every(
+    async () => (await loadSettings(db)).auctionScanMinutes * 60_000,
+    async () => {
+      const r = await auctionScan({ db, ebay, budget, valuate, rawPrice, now, log, ...(soldCheck ? { soldCheck } : {}) });
+      if (r.seen) log('info', 'auction scan', { ...r });
+    },
+    log,
+    'auction-scan',
   );
   const stopDeliver = every(
     async () => (await loadSettings(db)).deliveryIntervalSeconds * 1000,
@@ -140,7 +150,7 @@ async function main() {
     let code = 0;
     try {
       // Let any in-flight job finish (bounded) before closing the bot and DB under it.
-      await Promise.all([stopScan(), stopDeliver(), stopSweep(), stopOutcomes(), stopWeekly()]);
+      await Promise.all([stopScan(), stopAuction(), stopDeliver(), stopSweep(), stopOutcomes(), stopWeekly()]);
       await bot.stop();
       await http?.close();
       await db.end();

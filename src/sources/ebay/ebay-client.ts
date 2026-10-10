@@ -32,6 +32,8 @@ export interface EbayItem extends EbayItemSummary {
 
 export interface EbayClient {
   searchNewGraded(): Promise<EbayItemSummary[]>;
+  /** Auctions ending within windowMinutes, soonest first. No price floor: it would apply to the current bid. */
+  searchEndingAuctions(windowMinutes: number): Promise<EbayItemSummary[]>;
   getItem(itemId: string): Promise<EbayItem | null>;
 }
 
@@ -102,6 +104,20 @@ export function createEbayClient(o: EbayClientOptions): EbayClient {
       });
       const res = await get(`/buy/browse/v1/item_summary/search?${params.toString()}`);
       if (!res.ok) throw new Error(`eBay search ${res.status}: ${await res.text()}`);
+      const body = (await res.json()) as { itemSummaries?: EbayItemSummary[] };
+      return body.itemSummaries ?? [];
+    },
+    async searchEndingAuctions(windowMinutes) {
+      const endBy = new Date(o.now().getTime() + windowMinutes * 60_000).toISOString();
+      const params = new URLSearchParams({
+        q: o.query,
+        category_ids: o.categoryIds,
+        filter: `buyingOptions:{AUCTION},conditionIds:{2750},itemEndDate:[..${endBy}],priceCurrency:USD${o.buyerLocation ? `,deliveryCountry:${o.buyerLocation.country}` : ''}`,
+        sort: 'endingSoonest',
+        limit: '200',
+      });
+      const res = await get(`/buy/browse/v1/item_summary/search?${params.toString()}`);
+      if (!res.ok) throw new Error(`eBay auction search ${res.status}: ${await res.text()}`);
       const body = (await res.json()) as { itemSummaries?: EbayItemSummary[] };
       return body.itemSummaries ?? [];
     },
