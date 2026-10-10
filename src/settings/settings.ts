@@ -68,6 +68,8 @@ export interface Settings {
   auctionWindowMinutes: number;
   /** Alert an auction if the current bid is at most this fraction of the max bid. */
   auctionAlertPct: number;
+  /** Auctions may spend metered PPT credits. Off: they alert on cached PPT valuations only (credits are for BIN listings). */
+  auctionSpendsCredits: boolean;
   /** eBay.ca scan (Canadian sellers) on. */
   caScan: boolean;
   /** The CA scan runs on main cycles where cycle % n === 0. */
@@ -114,6 +116,7 @@ export const DEFAULT_SETTINGS: Settings = {
   auctionScanMinutes: 10,
   auctionWindowMinutes: 60,
   auctionAlertPct: 0.7,
+  auctionSpendsCredits: false,
   caScan: true,
   caScanEveryNCycles: 3,
 };

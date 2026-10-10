@@ -41,7 +41,7 @@ async function setup(opts: { used?: number; results?: EbayItemSummary[] } = {}) 
     },
     valuate: async (key) => ({
       ...key, value: 600, low: 590, high: 610, compCount: 6, newestCompAgeDays: 1, confidence: 0.9,
-      compsSource: 'fixture', oracleVersion: 'v1.0.0', computedAt: NOW,
+      compsSource: 'ppt', oracleVersion: 'v1.0.0', computedAt: NOW,
     }),
     now: () => NOW,
     log: silentLog,

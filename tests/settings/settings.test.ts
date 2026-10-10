@@ -135,8 +135,9 @@ describe('rawPromiseMultipliers setting', () => {
   it('has deal-mode defaults, clamps them, and ignores non-boolean modes', async () => {
     expect(DEFAULT_SETTINGS).toMatchObject({
       offerMode: true, offerMinPctOfAsk: 0.75, auctionMode: true, auctionScanMinutes: 10,
-      auctionWindowMinutes: 60, auctionAlertPct: 0.7, caScan: true, caScanEveryNCycles: 3,
+      auctionWindowMinutes: 60, auctionAlertPct: 0.7, auctionSpendsCredits: false, caScan: true, caScanEveryNCycles: 3,
     });
+    expect((await (async () => { const d = await createTestDb(); await d.query(`insert into settings (key, value) values ('auctionSpendsCredits', '"true"'::jsonb)`); return loadSettings(d); })()).auctionSpendsCredits).toBe(false);
     const db = await createTestDb();
     const put = (k: string, v: string) => db.query(`insert into settings (key, value) values ($1, $2::jsonb) on conflict (key) do update set value = excluded.value`, [k, v]);
     await put('offerMinPctOfAsk', '0.1');

@@ -98,10 +98,14 @@ export async function evaluateListing(
     promising = cost <= settings.alertRatio * rawUsd * promiseMult;
   }
 
-  const valuation = await deps.valuate(key, settings, { spend: promising });
-  if (!valuation) return { status: 'no_valuation', reasons: promising ? [] : ['not_promising'] };
-  // Triage only ever withholds spending. An unpromising listing must not fall through to a different source (own comps).
-  if (!promising && valuation.compsSource !== 'ppt') return { status: 'no_valuation', reasons: ['not_promising'] };
+  // Auctions an hour out often sit at $1-$20 bids and would all look promising: by default they use cached PPT comps only.
+  const auctionNoCredit = mode1 === 'auction' && !settings.auctionSpendsCredits;
+  const spend = promising && !auctionNoCredit;
+  const noSpendReason = !promising ? 'not_promising' : 'auction_no_credit';
+  const valuation = await deps.valuate(key, settings, { spend });
+  if (!valuation) return { status: 'no_valuation', reasons: spend ? [] : [noSpendReason] };
+  // Triage only ever withholds spending. A listing we did not spend on must not fall through to a different source (own comps).
+  if (!spend && valuation.compsSource !== 'ppt') return { status: 'no_valuation', reasons: [noSpendReason] };
   if (deps.now().getTime() - valuation.computedAt.getTime() > settings.valuationMaxAgeHours * 3_600_000) {
     return { status: 'rejected', reasons: ['stale_valuation'] };
   }

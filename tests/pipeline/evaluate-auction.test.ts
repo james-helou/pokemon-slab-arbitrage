@@ -16,7 +16,7 @@ const NOW = new Date('2026-10-03T12:00:00Z');
 const ENDS = '2026-10-03T12:40:00.000Z';
 const VALUATION: Valuation = {
   cardId: 'sv03.5-199', grader: 'PSA', grade: 10, value: 600, low: 592.5, high: 607.5, compCount: 6,
-  newestCompAgeDays: 1, confidence: 0.9, compsSource: 'fixture', oracleVersion: 'v1.0.0', computedAt: NOW,
+  newestCompAgeDays: 1, confidence: 0.9, compsSource: 'ppt', oracleVersion: 'v1.0.0', computedAt: NOW,
 };
 const SHIP20 = [{ shippingCost: { value: '20.00', currency: 'USD' } }];
 
@@ -30,7 +30,7 @@ function auctionSummary(bid: number): EbayItemSummary {
 }
 
 async function run(
-  o: { bid: number; itemBid?: number; settings?: Partial<Settings>; raw?: number; cash?: number },
+  o: { bid: number; itemBid?: number; source?: string; settings?: Partial<Settings>; raw?: number; cash?: number },
 ) {
   const db = await createTestDb();
   await seedCards(db);
@@ -45,7 +45,7 @@ async function run(
   const deps = {
     db,
     ebay: { getItem: async () => { getItemCalls++; return item; } },
-    valuate: async (_k: unknown, _s: unknown, opts?: { spend?: boolean }) => { spends.push(opts?.spend); return VALUATION; },
+    valuate: async (_k: unknown, _s: unknown, opts?: { spend?: boolean }) => { spends.push(opts?.spend); return o.source ? { ...VALUATION, compsSource: o.source } : VALUATION; },
     now: () => NOW,
     log: silentLog,
     ...(o.raw === undefined ? {} : { rawPrice: async () => o.raw! }),
@@ -90,8 +90,30 @@ describe('evaluateListing auctions', () => {
     expect(rec).toMatchObject({ kind: 'auction', routedTo: 'over_budget' });
   });
 
+  it('does not spend credits on an auction by default, even when promising', async () => {
+    const r = await run({ bid: 200 });
+    expect(r.spends).toEqual([false]);
+    expect(r.outcome.status).toBe('recommended');
+  });
+
+  it('spends on a promising auction when auctionSpendsCredits is on', async () => {
+    const r = await run({ bid: 200, settings: { auctionSpendsCredits: true } });
+    expect(r.spends).toEqual([true]);
+  });
+
+  it('rejects an auction valued from own comps with auction_no_credit', async () => {
+    const r = await run({ bid: 200, source: 'own_db' });
+    expect(r.outcome).toMatchObject({ status: 'no_valuation', reasons: ['auction_no_credit'] });
+    expect(r.getItemCalls()).toBe(0);
+  });
+
+  it('keeps not_promising when the auction is also unpromising', async () => {
+    const r = await run({ bid: 450, raw: 600, source: 'own_db', settings: { rawPromiseMultipliers: { default: 1 }, rawCeilingMultipliers: { default: 100 } } });
+    expect(r.outcome).toMatchObject({ status: 'no_valuation', reasons: ['not_promising'] });
+  });
+
   it('decides spend from the current bid', async () => {
-    const settings = { rawPromiseMultipliers: { default: 1 }, rawCeilingMultipliers: { default: 100 } };
+    const settings = { auctionSpendsCredits: true, rawPromiseMultipliers: { default: 1 }, rawCeilingMultipliers: { default: 100 } };
     const cheap = await run({ bid: 200, raw: 600, settings });
     expect(cheap.spends).toEqual([true]);
     const dear = await run({ bid: 450, raw: 600, settings });
