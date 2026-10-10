@@ -5,13 +5,20 @@ const API = 'https://api.ebay.com';
 export interface Money {
   value: string;
   currency: string;
+  convertedFromValue?: string;
+  convertedFromCurrency?: string;
 }
 
 export interface EbayItemSummary {
   itemId: string;
   title: string;
-  price: Money;
-  shippingOptions?: { shippingCost?: Money }[];
+  price?: Money;
+  currentBidPrice?: Money;
+  bidCount?: number;
+  itemEndDate?: string;
+  buyingOptions?: string[];
+  legacyItemId?: string;
+  shippingOptions?: { shippingCost?: Money; shippingCostType?: string }[];
   itemWebUrl: string;
   image?: { imageUrl: string };
   seller?: { username: string; feedbackScore?: number; feedbackPercentage?: string };

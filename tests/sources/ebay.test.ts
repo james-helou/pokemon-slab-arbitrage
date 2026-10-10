@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BudgetExceededError, createBudget, type Budget } from '../../src/sources/ebay/budget.js';
-import { createEbayClient } from '../../src/sources/ebay/ebay-client.js';
+import { createEbayClient, type EbayItemSummary } from '../../src/sources/ebay/ebay-client.js';
 import { isOutOfStock, mergeItemDetails, summaryToListing } from '../../src/sources/ebay/normalize.js';
 import { createTestDb } from '../helpers/test-db.js';
 import { ITEM, SUMMARY } from '../helpers/fixtures.js';
@@ -182,5 +182,61 @@ describe('normalize: no eBay user data persisted', () => {
     const merged = mergeItemDetails(base, { ...ITEM, seller: { username: 'someseller', feedbackScore: 500 } })!;
     expect(merged.sellerUsername).toBeNull();
     expect(JSON.stringify(merged.raw)).not.toContain('someseller');
+  });
+});
+
+describe('deal-mode normalization', () => {
+  const auction = (over: Partial<EbayItemSummary> = {}): EbayItemSummary => ({
+    ...SUMMARY, price: undefined, currentBidPrice: { value: '200.00', currency: 'USD' }, bidCount: 4,
+    itemEndDate: '2026-10-03T12:30:00.000Z', buyingOptions: ['AUCTION'], ...over,
+  });
+
+  it('copies buyingOptions and leaves USD output unchanged', () => {
+    const l = summaryToListing({ ...SUMMARY, buyingOptions: ['FIXED_PRICE', 'BEST_OFFER'] })!;
+    expect(l.buyingOptions).toEqual(['FIXED_PRICE', 'BEST_OFFER']);
+    expect(summaryToListing(SUMMARY)!.buyingOptions).toBeNull();
+    expect(summaryToListing(SUMMARY)!.price).toBe(350);
+  });
+
+  it('auction: current bid becomes the price and endsAt is kept', () => {
+    const l = summaryToListing(auction(), { origin: 'auction' })!;
+    expect(l.price).toBe(200);
+    expect(l.origin).toBe('auction');
+    expect(l.auction).toEqual({ currentBid: 200, bidCount: 4, endsAt: new Date('2026-10-03T12:30:00.000Z') });
+    expect(summaryToListing(auction({ bidCount: undefined }), { origin: 'auction' })!.auction!.bidCount).toBe(0);
+  });
+
+  it('auction: drops listings without a usable bid or end date', () => {
+    expect(summaryToListing(auction({ itemEndDate: undefined }), { origin: 'auction' })).toBeNull();
+    expect(summaryToListing(auction({ itemEndDate: 'garbage' }), { origin: 'auction' })).toBeNull();
+    expect(summaryToListing(auction({ currentBidPrice: { value: '200', currency: 'CAD' } }), { origin: 'auction' })).toBeNull();
+    expect(summaryToListing(auction({ currentBidPrice: { value: '0', currency: 'USD' } }), { origin: 'auction' })).toBeNull();
+    expect(summaryToListing(auction({ currentBidPrice: undefined }), { origin: 'auction' })).toBeNull();
+  });
+
+  it('CAD: converts price and shipping, keeps the original price', () => {
+    const cad: EbayItemSummary = {
+      ...SUMMARY, price: { value: '630.00', currency: 'CAD' },
+      shippingOptions: [{ shippingCost: { value: '14.00', currency: 'CAD' } }],
+    };
+    const l = summaryToListing(cad, { origin: 'ca_bin', cadToUsd: 1 / 1.4 })!;
+    expect(l).toMatchObject({ price: 450, shipping: 10, currency: 'USD', originalPrice: 630, originalCurrency: 'CAD', origin: 'ca_bin' });
+  });
+
+  it('CAD: uses convertedFromValue when the seller listed in USD, and drops without a rate', () => {
+    const cad: EbayItemSummary = {
+      ...SUMMARY, price: { value: '490.00', currency: 'CAD', convertedFromValue: '350.00', convertedFromCurrency: 'USD' },
+    };
+    expect(summaryToListing(cad, { origin: 'ca_bin', cadToUsd: 0.7 })!.price).toBe(350);
+    expect(summaryToListing(cad, { origin: 'ca_bin' })).toBeNull();
+    expect(summaryToListing(cad)).toBeNull();
+  });
+
+  it('mergeItemDetails carries origin, auction and CAD fields', () => {
+    const listing = summaryToListing(auction(), { origin: 'auction' })!;
+    const merged = mergeItemDetails(listing, { ...ITEM, ...auction() }, { origin: 'auction' })!;
+    expect(merged.origin).toBe('auction');
+    expect(merged.auction?.currentBid).toBe(200);
+    expect(merged.aspects['Grade']).toBe('10');
   });
 });

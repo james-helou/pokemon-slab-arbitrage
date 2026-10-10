@@ -132,4 +132,33 @@ describe('rawPromiseMultipliers setting', () => {
     await put('"nope"');
     expect((await loadSettings(db)).rawPromiseMultipliers).toEqual(DEFAULT_SETTINGS.rawPromiseMultipliers);
   });
+  it('has deal-mode defaults, clamps them, and ignores non-boolean modes', async () => {
+    expect(DEFAULT_SETTINGS).toMatchObject({
+      offerMode: true, offerMinPctOfAsk: 0.75, auctionMode: true, auctionScanMinutes: 10,
+      auctionWindowMinutes: 60, auctionAlertPct: 0.7, caScan: true, caScanEveryNCycles: 3,
+    });
+    const db = await createTestDb();
+    const put = (k: string, v: string) => db.query(`insert into settings (key, value) values ($1, $2::jsonb) on conflict (key) do update set value = excluded.value`, [k, v]);
+    await put('offerMinPctOfAsk', '0.1');
+    await put('auctionScanMinutes', '1');
+    await put('auctionWindowMinutes', '1000');
+    await put('auctionAlertPct', '5');
+    await put('caScanEveryNCycles', '0');
+    await put('offerMode', '"false"');
+    await put('caScan', '0');
+    await put('auctionMode', 'false');
+    const s = await loadSettings(db);
+    expect(s).toMatchObject({
+      offerMinPctOfAsk: 0.5, auctionScanMinutes: 5, auctionWindowMinutes: 180, auctionAlertPct: 1,
+      caScanEveryNCycles: 1, offerMode: true, caScan: true, auctionMode: false,
+    });
+    await put('offerMinPctOfAsk', '2');
+    await put('auctionScanMinutes', '100');
+    await put('auctionWindowMinutes', '1');
+    await put('auctionAlertPct', '0.01');
+    await put('caScanEveryNCycles', '99');
+    expect(await loadSettings(db)).toMatchObject({
+      offerMinPctOfAsk: 1, auctionScanMinutes: 60, auctionWindowMinutes: 15, auctionAlertPct: 0.3, caScanEveryNCycles: 20,
+    });
+  });
 });

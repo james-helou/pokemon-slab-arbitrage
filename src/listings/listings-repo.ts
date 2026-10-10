@@ -1,16 +1,20 @@
 import type { Db } from '../db/db.js';
-import type { GoneReason, Listing } from '../domain/types.js';
+import type { GoneReason, Listing, ListingOrigin } from '../domain/types.js';
 import type { MatchResult } from '../matcher/matcher.js';
 import { MATCHER_VERSION } from '../matcher/matcher.js';
 
 export async function upsertListing(db: Db, l: Listing, now: Date): Promise<{ isNew: boolean }> {
   const { rows } = await db.query<{ inserted: boolean }>(
     `insert into listings (source, external_id, title, price, shipping, currency, url, image_url, seller_username,
-       seller_feedback_score, seller_feedback_pct, listed_at, aspects, raw, first_seen_at, last_seen_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb, $15, $15)
+       seller_feedback_score, seller_feedback_pct, listed_at, aspects, raw, first_seen_at, last_seen_at,
+       origin, buying_options, original_price, original_currency)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb, $15, $15,
+       $16, $17::jsonb, $18, $19)
      on conflict (source, external_id) do update set
        title = excluded.title, price = excluded.price, shipping = excluded.shipping, image_url = excluded.image_url,
        aspects = case when excluded.aspects = '{}'::jsonb then listings.aspects else excluded.aspects end,
+       buying_options = coalesce(excluded.buying_options, listings.buying_options),
+       original_price = excluded.original_price, original_currency = excluded.original_currency,
        raw = excluded.raw, last_seen_at = excluded.last_seen_at, miss_count = 0,
        gone_at = case when listings.gone_reason = 'window_miss' then null else listings.gone_at end,
        gone_reason = case when listings.gone_reason = 'window_miss' then null else listings.gone_reason end
@@ -18,9 +22,20 @@ export async function upsertListing(db: Db, l: Listing, now: Date): Promise<{ is
     [
       l.source, l.externalId, l.title, l.price, l.shipping, l.currency, l.url, l.imageUrl, l.sellerUsername,
       l.sellerFeedbackScore, l.sellerFeedbackPct, l.listedAt, JSON.stringify(l.aspects), JSON.stringify(l.raw), now,
+      l.origin ?? 'us_bin', l.buyingOptions ? JSON.stringify(l.buyingOptions) : null, l.originalPrice ?? null,
+      l.originalCurrency ?? null,
     ],
   );
   return { isNew: Boolean(rows[0]!.inserted) };
+}
+
+/** The scan that first stored this listing; null = not stored. */
+export async function listingOrigin(db: Db, l: Pick<Listing, 'source' | 'externalId'>): Promise<ListingOrigin | null> {
+  const { rows } = await db.query<{ origin: ListingOrigin }>(
+    'select origin from listings where source = $1 and external_id = $2',
+    [l.source, l.externalId],
+  );
+  return rows[0]?.origin ?? null;
 }
 
 /**
@@ -62,13 +77,14 @@ export async function recordWindowMisses(
   source: Listing['source'],
   seenIds: string[],
   windowFloor: Date,
+  origin: ListingOrigin = 'us_bin',
 ): Promise<number> {
   const { rows } = await db.query(
     `update listings set miss_count = miss_count + 1
-     where source = $1 and gone_at is null and listed_at > $2
+     where source = $1 and gone_at is null and listed_at > $2 and origin = $4
        and external_id not in (select jsonb_array_elements_text($3::jsonb))
      returning external_id`,
-    [source, windowFloor, JSON.stringify(seenIds)],
+    [source, windowFloor, JSON.stringify(seenIds), origin],
   );
   return rows.length;
 }

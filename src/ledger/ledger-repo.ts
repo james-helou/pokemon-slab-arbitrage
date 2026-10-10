@@ -1,6 +1,7 @@
 import type { Db } from '../db/db.js';
 import { log as defaultLog, type Log } from '../log.js';
 import type { Grader, Valuation } from '../domain/types.js';
+import type { DealKind } from '../scoring/deal-modes.js';
 import type { ChannelNet } from '../scoring/scorer.js';
 import type { SoldCheckSnapshot } from '../soldcheck/sold-check.js';
 
@@ -17,6 +18,10 @@ export interface ListingSnapshot {
   shipping: number | null;
   sellerUsername: string | null;
   sellerFeedbackScore: number | null;
+  buyingOptions?: string[] | null;
+  originalPrice?: number | null;
+  originalCurrency?: string | null;
+  auction?: { currentBid: number; bidCount: number; endsAt: string } | null;
 }
 
 export interface CardSnapshot {
@@ -51,6 +56,9 @@ export interface NewRecommendation {
   oracleVersion: string;
   /** Present only when the sold check ran (SOLD_CHECK=on); stored in recommendations.sold_check. */
   soldCheck?: SoldCheckSnapshot;
+  /** Absent = bin. offer: human sends suggestedPrice as a Best Offer; auction: human bids up to suggestedPrice. */
+  kind?: DealKind;
+  suggestedPrice?: number | null;
 }
 
 export interface StoredRecommendation extends NewRecommendation {
@@ -82,6 +90,8 @@ function rowToRecommendation(r: Record<string, unknown>): StoredRecommendation {
     scorerVersion: String(r.scorer_version),
     matcherVersion: String(r.matcher_version),
     oracleVersion: String(r.oracle_version),
+    kind: r.kind as DealKind,
+    suggestedPrice: r.suggested_price === null || r.suggested_price === undefined ? null : Number(r.suggested_price),
     ...(r.sold_check ? { soldCheck: r.sold_check as SoldCheckSnapshot } : {}),
     createdAt: new Date(r.created_at as string),
   };
@@ -92,9 +102,9 @@ export async function insertRecommendation(db: Db, r: NewRecommendation): Promis
   const { rows } = await db.query<{ id: number }>(
     `insert into recommendations (source, external_id, card_id, grader, grade, cert, listing_snapshot, card_snapshot,
        valuation_snapshot, channel_nets, best_channel, buy_total, best_net, roi, confidence, rank, red_flags, routed_to,
-       scorer_version, matcher_version, oracle_version, sold_check)
+       scorer_version, matcher_version, oracle_version, sold_check, kind, suggested_price)
      values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11, $12, $13, $14, $15, $16,
-       $17::jsonb, $18, $19, $20, $21, $22::jsonb)
+       $17::jsonb, $18, $19, $20, $21, $22::jsonb, $23, $24)
      on conflict (source, external_id) do nothing
      returning id`,
     [
@@ -102,6 +112,7 @@ export async function insertRecommendation(db: Db, r: NewRecommendation): Promis
       JSON.stringify(r.cardSnapshot), JSON.stringify(r.valuationSnapshot), JSON.stringify(r.channelNets),
       r.bestChannel, r.buyTotal, r.bestNet, r.roi, r.confidence, r.rank, JSON.stringify(r.redFlags), r.routedTo,
       r.scorerVersion, r.matcherVersion, r.oracleVersion, r.soldCheck ? JSON.stringify(r.soldCheck) : null,
+      r.kind ?? 'bin', r.suggestedPrice ?? null,
     ],
   );
   return rows[0] ? Number(rows[0].id) : null;

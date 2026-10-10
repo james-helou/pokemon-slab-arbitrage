@@ -70,7 +70,7 @@ async function observeLive(
     await markGone(deps.db, ref, deps.now(), 'not_found');
     return { state: 'not_found', price: lastPrice };
   }
-  const itemPrice = Number(item.price.value);
+  const itemPrice = Number(item.price?.value);
   const price = Number.isFinite(itemPrice) ? itemPrice : lastPrice;
   if (isOutOfStock(item)) {
     await markGone(deps.db, ref, deps.now(), 'out_of_stock');

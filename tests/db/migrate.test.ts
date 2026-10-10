@@ -2,6 +2,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import type { Db } from '../../src/db/db.js';
 import { migrate } from '../../src/db/migrate.js';
 import { createTestDb } from '../helpers/test-db.js';
 
@@ -85,5 +86,62 @@ describe('migrate', () => {
     const dir = await mkdtemp(join(tmpdir(), 'migrate-'));
     await writeFile(join(dir, "x'; drop table cards;--.sql"), 'select 1;');
     await expect(migrate(db, dir)).rejects.toThrow(/invalid migration filename/i);
+  });
+  it('migration 017 backfills buying_options and defaults recommendation kind', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'migrate-'));
+    const { readdir, readFile } = await import('node:fs/promises');
+    const files = (await readdir('migrations')).filter((f) => f < '017').sort();
+    for (const f of files) await writeFile(join(dir, f), await readFile(join('migrations', f)));
+    const { PGlite } = await import('@electric-sql/pglite');
+    const pg = new PGlite();
+    const old: Db = {
+      async query<T>(text: string, params: unknown[] = []) {
+        return { rows: (await pg.query<T>(text, params as never[])).rows };
+      },
+      async exec(text: string) {
+        await pg.exec(text);
+      },
+    };
+    await migrate(old, dir);
+    await old.query(`insert into cards (id, name, number, set_id, set_name, set_printed_total) values ('c1','Card','1','s','Set',10)`);
+    await old.query(
+      `insert into listings (source, external_id, title, price, currency, url, aspects, raw, first_seen_at, last_seen_at)
+       values ('ebay','a','t',1,'USD','u','{}','{"buyingOptions":["FIXED_PRICE","BEST_OFFER"]}', now(), now()),
+              ('ebay','b','t',1,'USD','u','{}','{}', now(), now())`,
+    );
+    await old.query(
+      `insert into recommendations (source, external_id, card_id, grader, grade, cert, listing_snapshot, card_snapshot,
+        valuation_snapshot, channel_nets, best_channel, buy_total, best_net, roi, confidence, rank, red_flags, routed_to,
+        scorer_version, matcher_version, oracle_version)
+       values ('ebay','a','c1','PSA',10,null,'{}','{}','{}','[]','ebay',1,1,1,1,1,'[]','alerts','v','v','v')`,
+    );
+    expect(await migrate(old, 'migrations')).toEqual(['017_deal_modes.sql']);
+    const l = await old.query<{ external_id: string; origin: string; buying_options: unknown }>(
+      'select external_id, origin, buying_options from listings order by external_id',
+    );
+    expect(l.rows).toEqual([
+      { external_id: 'a', origin: 'us_bin', buying_options: ['FIXED_PRICE', 'BEST_OFFER'] },
+      { external_id: 'b', origin: 'us_bin', buying_options: null },
+    ]);
+    const r = await old.query<{ kind: string; suggested_price: string | null }>('select kind, suggested_price from recommendations');
+    expect(r.rows).toEqual([{ kind: 'bin', suggested_price: null }]);
+  });
+
+  it('enforces the recommendation kind / suggested_price pairing', async () => {
+    const db = await createTestDb();
+    await db.query(`insert into cards (id, name, number, set_id, set_name, set_printed_total) values ('c1','Card','1','s','Set',10)`);
+    const ins = (kind: string, price: number | null) =>
+      db.query(
+        `insert into recommendations (source, external_id, card_id, grader, grade, cert, listing_snapshot, card_snapshot,
+          valuation_snapshot, channel_nets, best_channel, buy_total, best_net, roi, confidence, rank, red_flags, routed_to,
+          scorer_version, matcher_version, oracle_version, kind, suggested_price)
+         values ('ebay',$1,'c1','PSA',10,null,'{}','{}','{}','[]','ebay',1,1,1,1,1,'[]','alerts','v','v','v',$2,$3)`,
+        [`x-${kind}-${price}`, kind, price],
+      );
+    await expect(ins('offer', null)).rejects.toThrow();
+    await expect(ins('bin', 5)).rejects.toThrow();
+    await expect(ins('bogus', 5)).rejects.toThrow();
+    await expect(ins('offer', 350)).resolves.toBeDefined();
+    await expect(ins('bin', null)).resolves.toBeDefined();
   });
 });

@@ -4,6 +4,8 @@ export type CompKind = 'paid_source' | 'disappearing_bin' | 'browser_agent';
 /** Why a listing's gone_at was set. See migrations/005_disappearing_bin.sql for the exact meaning of each. */
 export type GoneReason = 'out_of_stock' | 'not_found' | 'window_miss';
 
+export type ListingOrigin = 'us_bin' | 'ca_bin' | 'auction';
+
 export interface Listing {
   source: 'ebay';
   externalId: string;
@@ -20,6 +22,13 @@ export interface Listing {
   listedAt: Date | null;
   aspects: Record<string, string>;
   raw: unknown;
+  /** Which scan found it; absent = us_bin. */
+  origin?: ListingOrigin;
+  buyingOptions?: string[] | null;
+  /** Seller's price/currency before our CAD->USD conversion (CA scan only). */
+  originalPrice?: number | null;
+  originalCurrency?: string | null;
+  auction?: { currentBid: number; bidCount: number; endsAt: Date } | null;
 }
 
 export interface Match {

@@ -57,6 +57,21 @@ export interface Settings {
   pptDailyCredits: number;
   /** Credits spendable right at UTC midnight; the rest of pptDailyCredits is released evenly over the day. */
   pptBurstCredits: number;
+  /** Best Offer suggestions on. */
+  offerMode: boolean;
+  /** Alert an offer only if the max offer is at least this fraction of the ask. */
+  offerMinPctOfAsk: number;
+  /** Auction scan on. */
+  auctionMode: boolean;
+  auctionScanMinutes: number;
+  /** Auctions ending within this many minutes are scanned. */
+  auctionWindowMinutes: number;
+  /** Alert an auction if the current bid is at most this fraction of the max bid. */
+  auctionAlertPct: number;
+  /** eBay.ca scan (Canadian sellers) on. */
+  caScan: boolean;
+  /** The CA scan runs on main cycles where cycle % n === 0. */
+  caScanEveryNCycles: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -93,6 +108,14 @@ export const DEFAULT_SETTINGS: Settings = {
   soldCheckMaxGap: 0.2,
   pptDailyCredits: 90,
   pptBurstCredits: 20,
+  offerMode: true,
+  offerMinPctOfAsk: 0.75,
+  auctionMode: true,
+  auctionScanMinutes: 10,
+  auctionWindowMinutes: 60,
+  auctionAlertPct: 0.7,
+  caScan: true,
+  caScanEveryNCycles: 3,
 };
 
 /** Lower bounds for DB-loaded values that would otherwise hammer eBay or Discord. */
@@ -113,6 +136,11 @@ const MINIMUMS: Partial<Record<keyof Settings, number>> = {
   stage1ShippingEstimate: 0,
   pptDailyCredits: 0,
   pptBurstCredits: 0,
+  offerMinPctOfAsk: 0.5,
+  auctionScanMinutes: 5,
+  auctionWindowMinutes: 15,
+  auctionAlertPct: 0.3,
+  caScanEveryNCycles: 1,
 };
 
 /** Upper bounds for DB-loaded values that would otherwise make the sold check scrape harder or trust too little. */
@@ -126,6 +154,11 @@ const MAXIMUMS: Partial<Record<keyof Settings, number>> = {
   stage1ShippingEstimate: 200,
   pptDailyCredits: 100,
   pptBurstCredits: 100,
+  offerMinPctOfAsk: 1,
+  auctionScanMinutes: 60,
+  auctionWindowMinutes: 180,
+  auctionAlertPct: 1,
+  caScanEveryNCycles: 20,
 };
 
 /** Non-object -> defaults; a non-positive/non-numeric entry -> that key's default. */
@@ -151,6 +184,7 @@ export async function loadSettings(db: Db): Promise<Settings> {
         ? Math.min(Math.max(value, MINIMUMS[key] ?? -Infinity), MAXIMUMS[key] ?? Infinity)
         : dflt;
     }
+    if (typeof dflt === 'boolean' && typeof value !== 'boolean') value = dflt;
     if (key === 'rawCeilingMultipliers' || key === 'rawPromiseMultipliers') value = loadMultipliers(value, DEFAULT_SETTINGS[key]);
     (out as unknown as Record<string, unknown>)[key] = value;
   }

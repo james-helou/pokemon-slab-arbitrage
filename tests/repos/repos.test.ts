@@ -8,6 +8,7 @@ import {
   insertMatch, markGone, markSeenLive, recordWindowMisses, upsertListing,
 } from '../../src/listings/listings-repo.js';
 import { mergeItemDetails, summaryToListing } from '../../src/sources/ebay/normalize.js';
+import { listingOrigin } from '../../src/listings/listings-repo.js';
 import { createTestDb } from '../helpers/test-db.js';
 import { ITEM, SUMMARY, makeNewRecommendation, seedCards } from '../helpers/fixtures.js';
 
@@ -165,5 +166,52 @@ describe('disappearance bookkeeping', () => {
     expect(await missOf(db, 'gone')).toBe(0);
     expect(await missOf(db, 'edge')).toBe(0);
     expect(await missOf(db, 'open')).toBe(1);
+  });
+});
+
+describe('listing origin', () => {
+  const mk = (id: string, origin: 'us_bin' | 'ca_bin' | 'auction') => ({
+    ...summaryToListing(SUMMARY)!, externalId: id, listedAt: new Date('2026-10-03T11:58:00Z'), origin,
+  });
+
+  it('keeps the first origin, merges buying options and takes the latest original price', async () => {
+    const db = await createTestDb();
+    const first = { ...mk('O', 'ca_bin'), buyingOptions: ['FIXED_PRICE'], originalPrice: 630, originalCurrency: 'CAD' };
+    await upsertListing(db, first, NOW);
+    expect(await listingOrigin(db, first)).toBe('ca_bin');
+    expect(await listingOrigin(db, { source: 'ebay', externalId: 'nope' })).toBeNull();
+    await upsertListing(db, { ...mk('O', 'us_bin'), buyingOptions: null, originalPrice: 640, originalCurrency: 'CAD' }, NOW);
+    const { rows } = await db.query<{ origin: string; buying_options: unknown; original_price: string }>(
+      'select origin, buying_options, original_price from listings',
+    );
+    expect(rows[0]).toMatchObject({ origin: 'ca_bin', buying_options: ['FIXED_PRICE'], original_price: '640.00' });
+    await upsertListing(db, { ...mk('O', 'us_bin'), buyingOptions: ['AUCTION'] }, NOW);
+    const again = await db.query<{ buying_options: unknown; original_price: string | null }>('select buying_options, original_price from listings');
+    expect(again.rows[0]).toEqual({ buying_options: ['AUCTION'], original_price: null });
+  });
+
+  it('recordWindowMisses only touches the given origin', async () => {
+    const db = await createTestDb();
+    await upsertListing(db, mk('us', 'us_bin'), NOW);
+    await upsertListing(db, mk('ca', 'ca_bin'), NOW);
+    await upsertListing(db, mk('au', 'auction'), NOW);
+    const floor = new Date('2026-10-03T11:00:00Z');
+    expect(await recordWindowMisses(db, 'ebay', [], floor)).toBe(1);
+    expect(await recordWindowMisses(db, 'ebay', [], floor, 'ca_bin')).toBe(1);
+    const { rows } = await db.query<{ external_id: string; miss_count: number }>('select external_id, miss_count from listings order by external_id');
+    expect(rows).toEqual([
+      { external_id: 'au', miss_count: 0 }, { external_id: 'ca', miss_count: 1 }, { external_id: 'us', miss_count: 1 },
+    ]);
+  });
+});
+
+describe('recommendation kind', () => {
+  it('round-trips kind and suggested price', async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    const id = await insertRecommendation(db, makeNewRecommendation({ kind: 'offer', suggestedPrice: 350 }));
+    expect(await getRecommendation(db, id!)).toMatchObject({ kind: 'offer', suggestedPrice: 350 });
+    const bin = await insertRecommendation(db, makeNewRecommendation({ externalId: 'other' }));
+    expect(await getRecommendation(db, bin!)).toMatchObject({ kind: 'bin', suggestedPrice: null });
   });
 });
