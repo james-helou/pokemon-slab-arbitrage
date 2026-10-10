@@ -128,6 +128,18 @@ export async function reservePptCredits(db: Db, day: string, n: number, cap: num
   return rows.length > 0;
 }
 
+/**
+ * Credits spendable so far today: the burst plus a straight-line share of the daily cap for the elapsed fraction of
+ * the UTC day, never above the cap. Stops the whole budget going in the first hour (cap 90, burst 20: 00:00 -> 20,
+ * 06:00 -> 42, 12:00 -> 65, 18:00 -> 87, 23:00 -> 90).
+ */
+export function pacedCredits(dailyCap: number, burst: number, now: Date): number {
+  const cap = Math.max(0, dailyCap);
+  const midnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const elapsed = (now.getTime() - midnight) / 86_400_000;
+  return Math.min(cap, Math.max(0, burst) + Math.floor(cap * elapsed));
+}
+
 export interface PptAggregateDeps {
   db: Db;
   client: PptClient;
@@ -136,6 +148,8 @@ export interface PptAggregateDeps {
   now: () => Date;
   /** Credits spendable per UTC day, read on every call so a settings change applies without a restart. */
   dailyCredits: () => Promise<number>;
+  /** Credits allowed immediately at UTC midnight before pacing ramps up to dailyCredits. Absent: no pacing. */
+  burstCredits?: () => Promise<number>;
   log?: Log;
 }
 
@@ -152,6 +166,7 @@ export interface PptAggregateDeps {
  */
 export function pptAggregateSource(deps: PptAggregateDeps): AggregatePriceSource {
   let budgetLoggedDay = '';
+  let pacedLoggedHour = '';
   let authBlockedDay = '';
   async function writeCache(cardId: string, now: Date, entry: { tcgplayerId: string; response: unknown } | null, kind: string | null = null): Promise<void> {
     await deps.db.query(
@@ -200,8 +215,16 @@ export function pptAggregateSource(deps: PptAggregateDeps): AggregatePriceSource
           deps.log?.('warn', 'ppt unavailable (breaker open), using comps', { cardId: key.cardId });
           return null;
         }
-        if (!(await reservePptCredits(deps.db, day, CALL_COST, await deps.dailyCredits()))) {
-          if (budgetLoggedDay !== day) {
+        const dailyCap = await deps.dailyCredits();
+        const paced = deps.burstCredits ? Math.min(dailyCap, pacedCredits(dailyCap, await deps.burstCredits(), now)) : dailyCap;
+        if (!(await reservePptCredits(deps.db, day, CALL_COST, paced))) {
+          if (paced < dailyCap) {
+            const hour = now.toISOString().slice(0, 13);
+            if (pacedLoggedHour !== hour) {
+              pacedLoggedHour = hour;
+              deps.log?.('info', 'ppt paced credits reached', { paced, dailyCap });
+            }
+          } else if (budgetLoggedDay !== day) {
             budgetLoggedDay = day;
             deps.log?.('warn', 'ppt daily credit budget exhausted', { day });
           }

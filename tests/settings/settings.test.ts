@@ -99,6 +99,15 @@ describe('rawCeilingMultipliers setting', () => {
     expect((await loadSettings(db)).rawCeilingMultipliers).toEqual(DEFAULT_SETTINGS.rawCeilingMultipliers);
   });
 
+  it('defaults pptBurstCredits to 20 and clamps stored values to 0..100', async () => {
+    expect(DEFAULT_SETTINGS.pptBurstCredits).toBe(20);
+    const db = await createTestDb();
+    await setSetting(db, 'pptBurstCredits', 500);
+    expect((await loadSettings(db)).pptBurstCredits).toBe(100);
+    await setSetting(db, 'pptBurstCredits', -1);
+    expect((await loadSettings(db)).pptBurstCredits).toBe(0);
+  });
+
   it('defaults pptDailyCredits to 90 and clamps stored values to 0..100', async () => {
     expect(DEFAULT_SETTINGS.pptDailyCredits).toBe(90);
     const db = await createTestDb();

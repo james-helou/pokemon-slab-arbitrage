@@ -53,6 +53,7 @@ export async function buildOracleDeps(
     const aggregate = pptAggregateSource({
       db, client, now, log, fetch: deps.fetch,
       dailyCredits: async () => (await loadSettings(db)).pptDailyCredits,
+      burstCredits: async () => (await loadSettings(db)).pptBurstCredits,
     });
     return { db, now, source: compositeCompsSource([{ source: own }], log), aggregate, excludeFixture: true };
   }

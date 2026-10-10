@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '../../src/db/db.js';
 import { PptHttpError, PptUnavailableError, type PptClient } from '../../src/ppt/client.js';
-import { parsePptCard, pptAggregateSource, reservePptCredits, type ParseCtx } from '../../src/ppt/aggregate-source.js';
+import { pacedCredits, parsePptCard, pptAggregateSource, reservePptCredits, type ParseCtx } from '../../src/ppt/aggregate-source.js';
 import { createTestDb } from '../helpers/test-db.js';
 
 const NOW = new Date('2026-10-09T12:00:00Z');
@@ -35,7 +35,7 @@ beforeEach(async () => {
 });
 
 async function setup(opts: {
-  body?: unknown; err?: Error; open?: boolean; cap?: number; ids?: (number | string)[]; tcgdex?: () => Response; now?: () => Date;
+  body?: unknown; err?: Error; open?: boolean; cap?: number; burst?: number; ids?: (number | string)[]; tcgdex?: () => Response; now?: () => Date;
 } = {}) {
   const db = shared;
   await db.query('delete from vendor_credits');
@@ -55,6 +55,7 @@ async function setup(opts: {
     db, client, now: opts.now ?? (() => NOW),
     fetch: (async (url: string) => { tcgdexCalls.push(url); return opts.tcgdex ? opts.tcgdex() : tcgdexOk(opts.ids); }) as unknown as typeof fetch,
     dailyCredits: async () => opts.cap ?? 90,
+    ...(opts.burst === undefined ? {} : { burstCredits: async () => opts.burst! }),
     log: (level, msg, data) => { lines.push({ level, msg, data }); },
   });
   return { db, src, calls, lines, tcgdexCalls };
@@ -443,5 +444,58 @@ describe('pptAggregateSource spend:false (cache only)', () => {
   it('still returns null for labelled grades', async () => {
     const { src } = await setup();
     expect(await src.fetchAggregate({ ...KEY, gradeLabel: 'pristine' }, noSpend)).toBeNull();
+  });
+});
+
+
+describe('pacedCredits', () => {
+  const at = (h: number, m = 0) => new Date(Date.UTC(2026, 9, 10, h, m));
+  it('ramps from the burst to the daily cap across the UTC day (cap 90, burst 20)', () => {
+    expect(pacedCredits(90, 20, at(0))).toBe(20);
+    expect(pacedCredits(90, 20, at(6))).toBe(42);
+    expect(pacedCredits(90, 20, at(12))).toBe(65);
+    expect(pacedCredits(90, 20, at(18))).toBe(87);
+    expect(pacedCredits(90, 20, at(23))).toBe(90);
+  });
+  it('burst 0 starts at nothing, burst >= cap is unpaced, and bad values are clamped', () => {
+    expect(pacedCredits(90, 0, at(0))).toBe(0);
+    expect(pacedCredits(90, 0, at(12))).toBe(45);
+    expect(pacedCredits(90, 90, at(0))).toBe(90);
+    expect(pacedCredits(90, 500, at(0))).toBe(90);
+    expect(pacedCredits(90, -5, at(0))).toBe(0);
+    expect(pacedCredits(0, 20, at(12))).toBe(0);
+  });
+});
+
+describe('pptAggregateSource pacing', () => {
+  const ids = (n: number) => Array.from({ length: n }, (_, i) => ({ ...KEY, cardId: `p-${i}` }));
+
+  it('refuses at the paced cap while the daily cap has room, logs the info line once per hour, then allows later', async () => {
+    let t = new Date('2026-10-10T00:00:00Z');
+    const { src, calls, lines, db } = await setup({ cap: 90, burst: 20, now: () => t });
+    for (const k of ids(12)) await src.fetchAggregate(k);
+    expect(calls).toHaveLength(10);
+    expect((await used(db))[0]!.credits).toBe(20);
+    const paced = lines.filter((l) => l.msg === 'ppt paced credits reached');
+    expect(paced).toHaveLength(1);
+    expect(paced[0]).toMatchObject({ level: 'info', data: { paced: 20, dailyCap: 90 } });
+    expect(lines.some((l) => l.msg === 'ppt daily credit budget exhausted')).toBe(false);
+    t = new Date('2026-10-10T01:00:00Z'); // paced 23: one more call fits
+    for (const k of ids(14).slice(10)) await src.fetchAggregate(k);
+    expect(calls).toHaveLength(11);
+    expect(lines.filter((l) => l.msg === 'ppt paced credits reached')).toHaveLength(2);
+  });
+
+  it('at the end of the day the daily cap binds and the existing warn is used', async () => {
+    const { src, lines } = await setup({ cap: 4, burst: 20, now: () => new Date('2026-10-10T23:00:00Z') });
+    for (const k of ids(3)) await src.fetchAggregate(k);
+    expect(lines.filter((l) => l.msg === 'ppt daily credit budget exhausted')).toHaveLength(1);
+    expect(lines.some((l) => l.msg === 'ppt paced credits reached')).toBe(false);
+  });
+
+  it('burst 0 spends nothing at midnight', async () => {
+    const { src, calls } = await setup({ cap: 90, burst: 0, now: () => new Date('2026-10-10T00:00:00Z') });
+    await src.fetchAggregate(KEY);
+    expect(calls).toHaveLength(0);
   });
 });
