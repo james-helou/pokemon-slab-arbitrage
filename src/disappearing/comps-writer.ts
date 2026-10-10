@@ -8,6 +8,7 @@ const WINDOW_DAYS = 90;
  * Writes one disappearing_bin comp per confirmed-gone listing (out_of_stock or not_found) whose latest match
  * (enriched preferred over title) is confident and has no special grade label.
  * price = last seen list price (shipping excluded); sold_at = gone_at. The oracle applies boDiscount to this kind.
+ * Only us_bin listings without BEST_OFFER/AUCTION: an accepted offer or a bid sells at an unknown price.
  * Listings that were themselves recommended are excluded (flagged as underpriced, they would bias values down).
  * source_ref = ebay:<externalId>:<gone_reason>, so 404-derived comps can be filtered later without a migration.
  * A confirmed gone_reason is never overwritten, so the ref is stable per listing and the insert is idempotent
@@ -26,6 +27,9 @@ export async function recordDisappearingComps(db: Db, minMatchConfidence: number
        limit 1
      ) m on true
      where l.source = 'ebay' and l.currency = 'USD'
+       and l.origin = 'us_bin'
+       and not (coalesce(l.buying_options, '[]'::jsonb) ? 'BEST_OFFER')
+       and not (coalesce(l.buying_options, '[]'::jsonb) ? 'AUCTION')
        and l.gone_reason in ('out_of_stock', 'not_found')
        and l.gone_at >= $1
        and l.last_seen_at <= l.gone_at

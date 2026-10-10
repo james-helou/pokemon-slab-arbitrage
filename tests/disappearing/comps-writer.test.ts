@@ -105,4 +105,20 @@ describe('recordDisappearingComps', () => {
     const { rows } = await db.query<{ source_ref: string }>('select source_ref from comps');
     expect(rows.map((r) => r.source_ref)).toEqual(['ebay:usd:not_found']);
   });
+
+  it('skips Best Offer, auction, ca_bin and auction-origin listings but keeps fixed-price and unknown ones', async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    for (const id of ['bo', 'fixed', 'unknown', 'ca', 'auc', 'aucopt']) await gone(db, id);
+    const bo = (id: string, v: string | null) =>
+      db.query(`update listings set buying_options = $2::jsonb where external_id = $1`, [id, v]);
+    await bo('bo', '["FIXED_PRICE","BEST_OFFER"]');
+    await bo('fixed', '["FIXED_PRICE"]');
+    await bo('aucopt', '["FIXED_PRICE","AUCTION"]');
+    await db.query(`update listings set origin = 'ca_bin' where external_id = 'ca'`);
+    await db.query(`update listings set origin = 'auction' where external_id = 'auc'`);
+    expect(await recordDisappearingComps(db, 0.85, NOW)).toBe(2);
+    const { rows } = await db.query<{ source_ref: string }>('select source_ref from comps order by source_ref');
+    expect(rows.map((r) => r.source_ref)).toEqual(['ebay:fixed:not_found', 'ebay:unknown:not_found']);
+  });
 });

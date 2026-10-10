@@ -8,11 +8,14 @@ import { insertMatch, markGone, upsertListing } from '../listings/listings-repo.
 import type { Log } from '../log.js';
 import { matchListing, type CandidateLookup, type SetLister } from '../matcher/matcher.js';
 import { basicRedFlags } from '../risk/basic-flags.js';
+import { decideDeal, type DealMode } from '../scoring/deal-modes.js';
 import { score } from '../scoring/scorer.js';
 import { DEFAULT_SETTINGS, type Settings } from '../settings/settings.js';
 import { soldCheckVerdict, type SoldCheck, type SoldCheckSnapshot } from '../soldcheck/sold-check.js';
 import type { EbayClient } from '../sources/ebay/ebay-client.js';
 import { isOutOfStock, mergeItemDetails } from '../sources/ebay/normalize.js';
+
+const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 export interface EvaluateDeps {
   db: Db;
@@ -35,6 +38,11 @@ export interface EvaluateOutcome {
   status: EvaluateStatus;
   reasons: string[];
   recommendationId?: number;
+}
+
+function dealMode(l: Listing, settings: Settings): DealMode {
+  if (l.auction) return 'auction';
+  return settings.offerMode && l.buyingOptions?.includes('BEST_OFFER') ? 'bin_offer' : 'bin';
 }
 
 function gate(m: Match, settings: Settings): EvaluateOutcome | null {
@@ -65,6 +73,9 @@ export async function evaluateListing(
   if (gate1) return gate1;
 
   const key: ValuationKey = { cardId: first.match.cardId, grader: first.match.grader, grade: first.match.grade };
+  // Best Offer: triage and pre-score at the lowest offer we would alert on (auctions: listing.price is the current bid).
+  const mode1 = dealMode(listing, settings);
+  const triagePrice = mode1 === 'bin_offer' ? round2(settings.offerMinPctOfAsk * listing.price) : listing.price;
   const rawUsd = deps.rawPrice ? await deps.rawPrice(key.cardId) : null;
   // Unknown raw price: cannot judge, so spend as before.
   let promising = true;
@@ -75,14 +86,14 @@ export async function evaluateListing(
     const ceiling = rawUsd * mult;
     if (ceiling < settings.valueFloor) return { status: 'rejected', reasons: ['raw_ceiling_below_floor'] };
     const shipping = listing.shipping ?? settings.stage1ShippingEstimate;
-    if (listing.price + shipping > settings.alertRatio * ceiling) {
+    if (triagePrice + shipping > settings.alertRatio * ceiling) {
       return { status: 'rejected', reasons: ['price_above_raw_ceiling'] };
     }
     // Promise triage: even at the best plausible graded price (p90 of measured ratios) this could not clear the alert
     // ratio, so do not spend a metered vendor credit on it.
     const promiseMults = settings.rawPromiseMultipliers;
     const promiseMult = promiseMults[String(key.grade)] ?? promiseMults['default'] ?? DEFAULT_SETTINGS.rawPromiseMultipliers['default']!;
-    const cost = (listing.price + shipping) * (1 + settings.buyTaxRate + settings.fxFeePct);
+    const cost = (triagePrice + shipping) * (1 + settings.buyTaxRate + settings.fxFeePct);
     promising = cost <= settings.alertRatio * rawUsd * promiseMult;
   }
 
@@ -97,7 +108,7 @@ export async function evaluateListing(
   const cash = await availableCash(db);
   // Search summaries often carry no shipping (calculated rates); pre-score with the estimate. Stage 2 uses the real cost.
   const pre = score({
-    price: listing.price, shipping: listing.shipping ?? settings.stage1ShippingEstimate, valuation, matchConfidence: first.match.confidence,
+    price: triagePrice, shipping: listing.shipping ?? settings.stage1ShippingEstimate, valuation, matchConfidence: first.match.confidence,
     redFlags: [], channels, settings, availableCash: cash,
   });
   if (pre.decision === 'reject') return { status: 'rejected', reasons: pre.rejectReasons };
@@ -127,12 +138,18 @@ export async function evaluateListing(
   if (rawUsd !== null && valuation.value < rawUsd) {
     redFlags.push({ code: 'graded_below_raw', blocking: false, confidencePenalty: 0.3 });
   }
-  const final = score({
-    price: enriched.price, shipping: enriched.shipping, valuation, matchConfidence: m.confidence,
-    redFlags, channels, settings, availableCash: cash,
+  const d = decideDeal({
+    mode: dealMode(enriched, settings),
+    ask: enriched.price,
+    base: {
+      shipping: enriched.shipping, valuation, matchConfidence: m.confidence, redFlags, channels, settings,
+      availableCash: cash,
+    },
+    settings,
   });
-  if (final.decision === 'reject' || final.bestChannel === null) {
-    return { status: 'rejected', reasons: final.rejectReasons };
+  const final = d.score;
+  if (d.kind === null || final.decision === 'reject' || final.bestChannel === null) {
+    return { status: 'rejected', reasons: d.reasons.length > 0 ? d.reasons : final.rejectReasons };
   }
 
   const card = await getCard(db, key.cardId);
@@ -158,7 +175,9 @@ export async function evaluateListing(
     listingSnapshot: {
       title: enriched.title, url: enriched.url, imageUrl: enriched.imageUrl, price: enriched.price,
       shipping: enriched.shipping, sellerUsername: enriched.sellerUsername,
-      sellerFeedbackScore: enriched.sellerFeedbackScore,
+      sellerFeedbackScore: enriched.sellerFeedbackScore, buyingOptions: enriched.buyingOptions ?? null,
+      originalPrice: enriched.originalPrice ?? null, originalCurrency: enriched.originalCurrency ?? null,
+      ...(d.kind === 'offer' ? { maxOffer: d.maxPrice } : {}),
     },
     cardSnapshot: { name: card.name, setName: card.setName, number: card.number },
     valuationSnapshot: { ...valuation, computedAt: valuation.computedAt.toISOString() },
@@ -174,6 +193,8 @@ export async function evaluateListing(
     scorerVersion: final.scorerVersion,
     matcherVersion: m.matcherVersion,
     oracleVersion: valuation.oracleVersion,
+    kind: d.kind,
+    suggestedPrice: d.suggestedPrice,
     ...(soldCheck ? { soldCheck } : {}),
   });
   if (id === null) return { status: 'duplicate', reasons: [] };

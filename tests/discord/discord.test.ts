@@ -227,4 +227,46 @@ describe('buildAlertPayload sold check field', () => {
     expect(await un('error')).toBe('unavailable (fetch error)');
     expect(await un('no_results')).toBe('unavailable (no matching sales)');
   });
+
+describe('buildAlertPayload offer', () => {
+  async function offerRec() {
+    const db = await createTestDb();
+    await seedCards(db);
+    const id = (await insertRecommendation(db, makeNewRecommendation({
+      kind: 'offer', suggestedPrice: 350, buyTotal: 425.41,
+      listingSnapshot: { ...makeNewRecommendation().listingSnapshot, price: 450, maxOffer: 352.26 },
+    })))!;
+    return (await getRecommendation(db, id))!;
+  }
+
+  it('renders the offer line, title prefix, amber color and offer buy total', async () => {
+    const rec = await offerRec();
+    const p = buildAlertPayload(rec);
+    const e = p.embeds[0]!;
+    const f = Object.fromEntries((e.fields ?? []).map((x) => [x.name, x.value]));
+    expect(e.title).toBe('MAKE AN OFFER · PSA 10 · Charizard ex (151 #199)');
+    expect(e.color).toBe(0xf1c40f);
+    expect(e.fields![0]!.name).toBe('Make an offer');
+    expect(f['Make an offer']).toContain('Offer $350 (22% under ask $450.00)');
+    expect(f['Make an offer']).toContain('Send it yourself on eBay.');
+    expect(f['Make an offer']).toContain('$352.26');
+    expect(f['Make an offer']).not.toContain('C$');
+    expect(f['Buy total at offer']).toContain('$425.41');
+    expect(f['Buy total']).toBeUndefined();
+  });
+
+  it('adds the CAD estimate only when a rate is passed', async () => {
+    const rec = await offerRec();
+    const f = Object.fromEntries((buildAlertPayload(rec, { usdCad: 1.4 }).embeds[0]!.fields ?? []).map((x) => [x.name, x.value]));
+    expect(f['Make an offer']).toContain('Offer $350 (≈ C$490.00)');
+  });
+
+  it('leaves bin payloads without offer text', async () => {
+    const { rec } = await setupRec();
+    const e = buildAlertPayload(rec).embeds[0]!;
+    expect(e.title).not.toContain('MAKE AN OFFER');
+    expect(e.color).toBe(0x2ecc71);
+    expect((e.fields ?? []).map((x) => x.name)).not.toContain('Make an offer');
+  });
+});
 });

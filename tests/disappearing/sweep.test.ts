@@ -140,5 +140,13 @@ describe('sweepDisappeared', () => {
     const { rows } = await db.query<{ n: number }>('select count(*)::int as n from listings where gone_at is null');
     expect(rows[0]!.n).toBe(15);
   });
-});
 
+  it('does not list Best Offer, auction or non-US-BIN suspects', async () => {
+    const { db, deps, calls } = await setup();
+    await db.query(`update listings set buying_options = '["FIXED_PRICE","BEST_OFFER"]'::jsonb`);
+    expect(await sweepDisappeared(deps)).toMatchObject({ suspects: 0 });
+    await db.query(`update listings set buying_options = null, origin = 'ca_bin'`);
+    expect(await sweepDisappeared(deps)).toMatchObject({ suspects: 0 });
+    expect(calls()).toBe(0);
+  });
+});

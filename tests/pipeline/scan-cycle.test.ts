@@ -137,4 +137,15 @@ describe('scanCycle', () => {
     const { rows } = await db.query<{ miss_count: number }>(`select miss_count from listings where external_id = 'v1|D|0'`);
     expect(rows[0]!.miss_count).toBe(0);
   });
+
+  it('leaves FIXED_PRICE+AUCTION summaries to the auction scan only when auction mode is on', async () => {
+    const hybrid: EbayItemSummary = { ...SUMMARY, buyingOptions: ['FIXED_PRICE', 'AUCTION'] };
+    const on = await setup({ results: [hybrid] });
+    expect(await scanCycle(on.deps, 0)).toMatchObject({ seen: 1, new: 0 });
+    expect((await on.db.query('select 1 from listings')).rows).toHaveLength(0);
+    const off = await setup({ results: [hybrid] });
+    await setSetting(off.db, 'auctionMode', false);
+    expect(await scanCycle(off.deps, 0)).toMatchObject({ new: 1 });
+    expect((await off.db.query('select 1 from listings')).rows).toHaveLength(1);
+  });
 });

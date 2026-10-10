@@ -69,10 +69,19 @@ export function buildAlertPayload(r: StoredRecommendation, opts?: { usdCad?: num
     r.redFlags.length > 0 ? `flags: ${r.redFlags.join(', ')}` : 'no red flags',
   ].join('\n');
 
+  const offer = r.kind === 'offer' && r.suggestedPrice != null ? r.suggestedPrice : null;
+  const offerField: NonNullable<APIEmbed['fields']> = offer === null ? [] : [{
+    name: 'Make an offer',
+    value: `Offer ${usd(offer).replace(/\.00$/, '')}${cadSuffix(offer, rate)} ` +
+      `(${Math.round((1 - offer / r.listingSnapshot.price) * 100)}% under ask ${usd(r.listingSnapshot.price)})\n` +
+      `Send it yourself on eBay. Highest offer that still clears the rules: ${usd(r.listingSnapshot.maxOffer ?? offer)}.`,
+  }];
+
   const fields: NonNullable<APIEmbed['fields']> = [
+    ...offerField,
     {
-      name: 'Buy total',
-      value: `${usd(r.buyTotal)}${cadSuffix(r.buyTotal, rate)} (list ${usd(r.listingSnapshot.price)} + ${ship} + tax)`,
+      name: offer === null ? 'Buy total' : 'Buy total at offer',
+      value: `${usd(r.buyTotal)}${cadSuffix(r.buyTotal, rate)} (${offer === null ? 'list' : 'offer'} ${usd(offer ?? r.listingSnapshot.price)} + ${ship} + tax)`,
     },
     {
       name: 'Market value',
@@ -88,8 +97,8 @@ export function buildAlertPayload(r: StoredRecommendation, opts?: { usdCad?: num
   if (r.redFlags.length > 0) fields.push({ name: 'Red flags', value: r.redFlags.join(', '), inline: true });
 
   const embed: APIEmbed = {
-    title: `${r.grader} ${r.grade} · ${r.cardSnapshot.name} (${r.cardSnapshot.setName} #${r.cardSnapshot.number})`.slice(0, 256),
-    color: r.routedTo === 'alerts' ? 0x2ecc71 : 0x95a5a6,
+    title: `${offer === null ? '' : 'MAKE AN OFFER · '}${r.grader} ${r.grade} · ${r.cardSnapshot.name} (${r.cardSnapshot.setName} #${r.cardSnapshot.number})`.slice(0, 256),
+    color: r.routedTo === 'alerts' ? (offer === null ? 0x2ecc71 : 0xf1c40f) : 0x95a5a6,
     description: r.listingSnapshot.title.slice(0, 300),
     fields: fields.map((f) => ({ ...f, value: truncate(f.value, 1024) })),
     footer: { text: `rec #${r.id} · comps: ${v.compsSource} · scorer ${r.scorerVersion}` },

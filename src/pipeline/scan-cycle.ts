@@ -37,6 +37,8 @@ export async function scanCycle(deps: ScanDeps, cycle: number): Promise<ScanSumm
   const seenIds: string[] = [];
   let windowFloor: Date | null = null;
   for (const s of results) {
+    // FIXED_PRICE+AUCTION items belong to the auction scan (the BIN option disappears after the first bid).
+    if (settings.auctionMode && s.buyingOptions?.includes('AUCTION')) continue;
     const listing = summaryToListing(s);
     if (!listing) continue;
     seenIds.push(listing.externalId);
