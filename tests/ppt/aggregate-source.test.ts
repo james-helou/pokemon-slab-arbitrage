@@ -9,6 +9,7 @@ const NOW = new Date('2026-10-09T12:00:00Z');
 const KEY = { cardId: 'sv03.5-199', grader: 'PSA' as const, grade: 10 };
 const SECRET = 'ppt-s3cret';
 
+const tcgdexRaw = (variants: unknown[]) => new Response(JSON.stringify({ variants_detailed: variants }), { status: 200 });
 const tcgdexOk = (ids: (number | string)[] = [555]) =>
   new Response(JSON.stringify({ variants_detailed: ids.map((id) => ({ thirdParty: { tcgplayer: id } })) }), { status: 200 });
 
@@ -497,5 +498,27 @@ describe('pptAggregateSource pacing', () => {
     const { src, calls } = await setup({ cap: 90, burst: 0, now: () => new Date('2026-10-10T00:00:00Z') });
     await src.fetchAggregate(KEY);
     expect(calls).toHaveLength(0);
+  });
+});
+
+
+describe('pptAggregateSource variant-aware id', () => {
+  it('requests the unlimited id when TCGdex also lists shadowless and copyright prints', async () => {
+    const variants = [
+      { type: 'holo', subtype: 'unlimited', thirdParty: { tcgplayer: 555 } },
+      { type: 'holo', subtype: 'shadowless', thirdParty: { tcgplayer: 777 } },
+      { type: 'holo', subtype: '1999-2000-copyright', thirdParty: { tcgplayer: null } },
+    ];
+    const { src, calls } = await setup({ tcgdex: () => tcgdexRaw(variants) });
+    expect(await src.fetchAggregate(KEY)).toMatchObject({ value: 300 });
+    expect(calls[0]!.query).toMatchObject({ tcgPlayerId: '555' });
+  });
+
+  it('two plain holo ids stay ambiguous: negative cache, no credits', async () => {
+    const variants = [{ type: 'holo', thirdParty: { tcgplayer: 1 } }, { type: 'holo', thirdParty: { tcgplayer: 2 } }];
+    const { src, db, calls } = await setup({ tcgdex: () => tcgdexRaw(variants) });
+    expect(await src.fetchAggregate(KEY)).toBeNull();
+    expect(calls).toHaveLength(0);
+    expect((await db.query('select 1 from vendor_card_cache where body is null')).rows).toHaveLength(1);
   });
 });

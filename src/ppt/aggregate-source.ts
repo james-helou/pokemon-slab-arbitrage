@@ -2,7 +2,7 @@ import type { Db } from '../db/db.js';
 import type { ValuationKey } from '../domain/types.js';
 import type { Log } from '../log.js';
 import type { AggregateFetchOptions, AggregatePrice, AggregatePriceSource } from '../oracle/aggregate-source.js';
-import { tcgplayerIds } from '../poketrace/mapping.js';
+import { pptTcgplayerId } from './tcgplayer-id.js';
 import { PptHttpError, PptUnavailableError, type PptClient } from './client.js';
 
 type Key = Parameters<AggregatePriceSource['fetchAggregate']>[0];
@@ -204,12 +204,16 @@ export function pptAggregateSource(deps: PptAggregateDeps): AggregatePriceSource
         if (opts?.spend === false) return null;
         if (authBlockedDay === day) return null;
 
-        const ids = await tcgplayerIds(deps.fetch, key.cardId);
-        if (ids.length !== 1) {
+        const tcgplayerId = await pptTcgplayerId(deps.fetch, key.cardId);
+        if (tcgplayerId === 'error') {
+          // Nothing cached: a TCGdex outage must not poison the card for 7 days.
+          deps.log?.('warn', 'ppt lookup failed, using comps', { cardId: key.cardId });
+          return null;
+        }
+        if (tcgplayerId === null) {
           await writeCache(key.cardId, now, null);
           return null;
         }
-        const tcgplayerId = ids[0]!;
 
         if (deps.client.isOpen()) {
           deps.log?.('warn', 'ppt unavailable (breaker open), using comps', { cardId: key.cardId });
