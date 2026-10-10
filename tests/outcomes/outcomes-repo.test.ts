@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { upsertListing } from '../../src/listings/listings-repo.js';
+import { summaryToListing } from '../../src/sources/ebay/normalize.js';
 import { getRecommendation, insertDecision, insertRecommendation } from '../../src/ledger/ledger-repo.js';
 import { decisionSnapshot, dueOutcomes, insertOutcome, type NewOutcome } from '../../src/outcomes/outcomes-repo.js';
 import { createTestDb } from '../helpers/test-db.js';
-import { makeNewRecommendation, seedCards } from '../helpers/fixtures.js';
+import { SUMMARY, makeNewRecommendation, seedCards } from '../helpers/fixtures.js';
 
 const DAY = 86_400_000;
 
@@ -55,5 +57,20 @@ describe('dueOutcomes kinds', () => {
     const rec = (await getRecommendation(db, bin))!;
     const due = await dueOutcomes(db, new Date(rec.createdAt.getTime() + 8 * DAY), 10);
     expect(due.map((d) => d.id).sort()).toEqual([bin, offer].sort());
+  });
+});
+
+describe('dueOutcomes origins', () => {
+  it('excludes recommendations whose listing is not us_bin', async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    const us = (await insertRecommendation(db, makeNewRecommendation({ externalId: 'v1|1|0' })))!;
+    const ca = (await insertRecommendation(db, makeNewRecommendation({ externalId: 'v1|2|0' })))!;
+    await upsertListing(db, summaryToListing({ ...SUMMARY, itemId: 'v1|1|0' })!, new Date());
+    await upsertListing(db, summaryToListing({ ...SUMMARY, itemId: 'v1|2|0', price: { value: '630.00', currency: 'CAD' } }, { origin: 'ca_bin', cadToUsd: 0.7 })!, new Date());
+    const rec = (await getRecommendation(db, us))!;
+    const due = await dueOutcomes(db, new Date(rec.createdAt.getTime() + 8 * DAY), 10);
+    expect(due.map((d) => d.id)).toEqual([us]);
+    expect(due.map((d) => d.id)).not.toContain(ca);
   });
 });

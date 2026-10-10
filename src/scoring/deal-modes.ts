@@ -45,7 +45,7 @@ export function decideDeal(i: {
     const tooDeep = [...atAsk.rejectReasons, 'offer_too_deep'];
     if (max === null || cents(max) < Math.ceil(i.settings.offerMinPctOfAsk * askCents - 1e-9)) return reject(tooDeep, max);
     const suggested = Math.floor(max / 5) * 5;
-    if (suggested < 5) return reject(tooDeep, max);
+    if (suggested < 5 || cents(suggested) < Math.ceil(i.settings.offerMinPctOfAsk * askCents - 1e-9)) return reject(tooDeep, max);
     return { kind: 'offer', score: at(suggested), suggestedPrice: suggested, maxPrice: max, reasons: [] };
   }
 

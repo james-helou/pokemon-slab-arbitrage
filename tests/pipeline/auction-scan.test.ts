@@ -23,11 +23,12 @@ function auction(id: string, bid: number, endsInMin: number): EbayItemSummary {
   };
 }
 
-async function setup(opts: { used?: number; results?: EbayItemSummary[] } = {}) {
+async function setup(opts: { used?: number; results?: EbayItemSummary[]; cached?: boolean } = {}) {
   const db = await createTestDb();
   await seedCards(db);
   await addEntry(db, { kind: 'deposit', amount: 2000 });
   const calls = { search: 0, getItem: 0, windows: [] as number[] };
+  const state = { cached: opts.cached ?? true };
   const budget: Budget = { limit: 5000, beforeCall: async () => {}, usedToday: async () => opts.used ?? 0 };
   const deps: AuctionScanDeps = {
     db,
@@ -39,14 +40,14 @@ async function setup(opts: { used?: number; results?: EbayItemSummary[] } = {}) 
         return { ...ITEM, ...auction(id, 200, 30), shippingOptions: [{ shippingCost: { value: '20.00', currency: 'USD' } }] };
       },
     },
-    valuate: async (key) => ({
+    valuate: async (key) => state.cached ? ({
       ...key, value: 600, low: 590, high: 610, compCount: 6, newestCompAgeDays: 1, confidence: 0.9,
       compsSource: 'ppt', oracleVersion: 'v1.0.0', computedAt: NOW,
-    }),
+    }) : null,
     now: () => NOW,
     log: silentLog,
   };
-  return { db, deps, calls };
+  return { db, deps, calls, state };
 }
 
 describe('auctionScan', () => {
@@ -103,5 +104,25 @@ describe('auctionScan', () => {
     expect(r.missed).toBe(0);
     const { rows } = await db.query<{ miss_count: number }>('select miss_count from listings');
     expect(rows[0]!.miss_count).toBe(0);
+  });
+
+  it('re-evaluates an auction with no valuation until one is cached, then recommends it once', async () => {
+    const { db, deps, calls, state } = await setup({ cached: false });
+    expect((await auctionScan(deps)).outcomes).toEqual({ no_valuation: 1 });
+    expect((await auctionScan(deps)).outcomes).toEqual({ no_valuation: 1 });
+    expect(calls.getItem).toBe(0);
+    state.cached = true;
+    expect((await auctionScan(deps)).outcomes).toEqual({ recommended: 1 });
+    expect(calls.getItem).toBe(1);
+    expect((await auctionScan(deps)).outcomes).toEqual({});
+    expect(calls.getItem).toBe(1);
+    expect((await db.query('select 1 from recommendations')).rows).toHaveLength(1);
+  });
+
+  it('does not re-evaluate a rejected auction', async () => {
+    const { deps, calls } = await setup({ results: [auction('v1|A9|0', 400, 30)] });
+    expect((await auctionScan(deps)).outcomes).toEqual({ rejected: 1 });
+    expect((await auctionScan(deps)).outcomes).toEqual({});
+    expect(calls.getItem).toBe(0);
   });
 });

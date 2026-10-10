@@ -106,8 +106,19 @@ describe('caScan', () => {
     expect(rows.map((x) => ({ price: Number(x.price), origin: x.origin }))).toEqual([{ price: 350, origin: 'us_bin' }]);
   });
 
-  it('skips AUCTION items while auction mode is on', async () => {
+  it('keeps FIXED_PRICE+AUCTION items with no bids while auction mode is on', async () => {
     const { db, deps } = await setup({ results: [caSummary({ buyingOptions: ['FIXED_PRICE', 'AUCTION'] })] });
+    await createCaScan(deps)();
+    expect((await db.query('select 1 from listings')).rows).toHaveLength(1);
+  });
+
+  it('skips bid-on and auction-only items while auction mode is on', async () => {
+    const { db, deps } = await setup({
+      results: [
+        caSummary({ buyingOptions: ['FIXED_PRICE', 'AUCTION'], bidCount: 1 }),
+        caSummary({ itemId: 'v1|999|0', buyingOptions: ['AUCTION'] }),
+      ],
+    });
     await createCaScan(deps)();
     expect((await db.query('select 1 from listings')).rows).toHaveLength(0);
   });

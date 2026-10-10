@@ -8,6 +8,7 @@ import { insertMatch, markGone, upsertListing } from '../listings/listings-repo.
 import type { Log } from '../log.js';
 import { matchListing, type CandidateLookup, type SetLister } from '../matcher/matcher.js';
 import { basicRedFlags } from '../risk/basic-flags.js';
+import { round2 } from '../scoring/fees.js';
 import { decideDeal, type DealMode } from '../scoring/deal-modes.js';
 import { maxBuyPrice } from '../scoring/max-buy-price.js';
 import { score } from '../scoring/scorer.js';
@@ -15,8 +16,6 @@ import { DEFAULT_SETTINGS, type Settings } from '../settings/settings.js';
 import { soldCheckVerdict, type SoldCheck, type SoldCheckSnapshot } from '../soldcheck/sold-check.js';
 import type { EbayClient } from '../sources/ebay/ebay-client.js';
 import { isOutOfStock, mergeItemDetails } from '../sources/ebay/normalize.js';
-
-const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 export interface EvaluateDeps {
   db: Db;

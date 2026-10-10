@@ -33,13 +33,21 @@ describe('decideDeal', () => {
   });
 
   it('bin_offer: offerMinPctOfAsk threshold is compared in cents', () => {
-    expect(decideDeal({ mode: 'bin_offer', ask: 469.68, base, settings }).kind).toBe('offer');
+    expect(decideDeal({ mode: 'bin_offer', ask: 466.66, base, settings }).kind).toBe('offer');
     const deep = decideDeal({ mode: 'bin_offer', ask: 469.69, base, settings });
     expect(deep.kind).toBeNull();
     expect(deep.reasons).toContain('offer_too_deep');
     const way = decideDeal({ mode: 'bin_offer', ask: 480, base, settings });
     expect(way.kind).toBeNull();
     expect(way.reasons).toEqual(expect.arrayContaining(['price_above_alert_ratio', 'offer_too_deep']));
+  });
+
+  it('bin_offer: rejects when the $5-rounded offer falls below the minimum pct of ask', () => {
+    // max 352.26 rounds down to 350; 350 / 469.68 = 74.5% < 75%, though the unrounded max is 75.0%.
+    const d = decideDeal({ mode: 'bin_offer', ask: 469.68, base, settings });
+    expect(d.kind).toBeNull();
+    expect(d.reasons).toContain('offer_too_deep');
+    expect(decideDeal({ mode: 'bin_offer', ask: 466.67, base, settings }).kind).toBeNull();
   });
 
   it('bin_offer: rejects when nothing can pass', () => {

@@ -93,11 +93,17 @@ async function main() {
     log,
     'scan',
   );
+  let lastAuctionStatus = 'ok';
   const stopAuction = every(
     async () => (await loadSettings(db)).auctionScanMinutes * 60_000,
     async () => {
       const r = await auctionScan({ db, ebay, budget, valuate, rawPrice, now, log, ...(soldCheck ? { soldCheck } : {}) });
       if (r.seen) log('info', 'auction scan', { ...r });
+      // Log a non-ok status (paused/throttled/disabled) once per change, not every interval.
+      if (r.status !== lastAuctionStatus) {
+        if (r.status !== 'ok') log('info', 'auction scan skipped', { status: r.status });
+        lastAuctionStatus = r.status;
+      }
     },
     log,
     'auction-scan',

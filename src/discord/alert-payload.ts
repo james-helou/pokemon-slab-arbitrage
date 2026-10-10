@@ -72,10 +72,17 @@ export function buildAlertPayload(r: StoredRecommendation, opts?: { usdCad?: num
   const snap = r.listingSnapshot;
   const cadList = snap.originalCurrency === 'CAD' && snap.originalPrice != null ? `C$${snap.originalPrice.toFixed(2)} (≈ ${usd(snap.price)})` : null;
   const offer = r.kind === 'offer' && r.suggestedPrice != null ? r.suggestedPrice : null;
+  // eBay.ca listing: lead with the C$ amount the human types there, rounded down to C$5 (stays within the rules).
+  const cadOffer = offer !== null && rate && snap.originalCurrency === 'CAD' && snap.originalPrice != null
+    ? { amount: Math.floor(Math.round(offer * rate * 100) / 500) * 5, ask: snap.originalPrice }
+    : null;
+  const offerLead = offer === null ? '' : cadOffer !== null
+    ? `Offer C$${cadOffer.amount} (≈ ${usd(offer).replace(/\.00$/, '')}, ${Math.round((1 - cadOffer.amount / cadOffer.ask) * 100)}% under ask C$${cadOffer.ask.toFixed(2)})`
+    : `Offer ${usd(offer).replace(/\.00$/, '')}${cadSuffix(offer, rate)} ` +
+      `(${Math.round((1 - offer / r.listingSnapshot.price) * 100)}% under ask ${usd(r.listingSnapshot.price)})`;
   const offerField: NonNullable<APIEmbed['fields']> = offer === null ? [] : [{
     name: 'Make an offer',
-    value: `Offer ${usd(offer).replace(/\.00$/, '')}${cadSuffix(offer, rate)} ` +
-      `(${Math.round((1 - offer / r.listingSnapshot.price) * 100)}% under ask ${usd(r.listingSnapshot.price)})\n` +
+    value: `${offerLead}\n` +
       `Send it yourself on eBay. Highest offer that still clears the rules: ${usd(r.listingSnapshot.maxOffer ?? offer)}.`,
   }];
 

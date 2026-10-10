@@ -162,4 +162,17 @@ describe('rawPromiseMultipliers setting', () => {
       offerMinPctOfAsk: 1, auctionScanMinutes: 60, auctionWindowMinutes: 15, auctionAlertPct: 0.3, caScanEveryNCycles: 20,
     });
   });
+
+  it('fails closed on a non-boolean paused value, and falls back on other booleans', async () => {
+    const db = await createTestDb();
+    const put = (k: string, v: string) => db.query(`insert into settings (key, value) values ($1, $2::jsonb) on conflict (key) do update set value = excluded.value`, [k, v]);
+    await put('paused', '"true"');
+    expect((await loadSettings(db)).paused).toBe(true);
+    await put('paused', '"yes"');
+    expect((await loadSettings(db)).paused).toBe(true);
+    await put('paused', 'false');
+    expect((await loadSettings(db)).paused).toBe(false);
+    await put('offerMode', '"false"');
+    expect((await loadSettings(db)).offerMode).toBe(DEFAULT_SETTINGS.offerMode);
+  });
 });

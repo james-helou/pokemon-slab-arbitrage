@@ -187,7 +187,8 @@ export async function loadSettings(db: Db): Promise<Settings> {
         ? Math.min(Math.max(value, MINIMUMS[key] ?? -Infinity), MAXIMUMS[key] ?? Infinity)
         : dflt;
     }
-    if (typeof dflt === 'boolean' && typeof value !== 'boolean') value = dflt;
+    // A malformed pause flag fails closed (paused); other flags fall back to their default.
+    if (typeof dflt === 'boolean' && typeof value !== 'boolean') value = key === 'paused' ? true : dflt;
     if (key === 'rawCeilingMultipliers' || key === 'rawPromiseMultipliers') value = loadMultipliers(value, DEFAULT_SETTINGS[key]);
     (out as unknown as Record<string, unknown>)[key] = value;
   }

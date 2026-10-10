@@ -26,6 +26,7 @@ export function summaryToListing(s: EbayItemSummary, opts: NormalizeOpts = {}): 
   const origin = opts.origin;
   let price: number;
   let originalPrice: number | null = null;
+  let originalCurrency: 'CAD' | 'USD' = 'CAD';
   let auction: Listing['auction'] = null;
   let toUsd = (v: number): number => v;
   if (origin === 'auction') {
@@ -44,7 +45,8 @@ export function summaryToListing(s: EbayItemSummary, opts: NormalizeOpts = {}): 
       if (rate === undefined || !Number.isFinite(rate) || rate <= 0) return null;
       const seller = p.convertedFromCurrency === 'USD' ? finite(p.convertedFromValue) : null;
       price = seller ?? round2(v * rate);
-      originalPrice = v;
+      // The seller's own price: USD when they listed in USD (eBay's CAD figure is just a conversion).
+      if (seller !== null) { originalPrice = seller; originalCurrency = 'USD'; } else originalPrice = v;
       toUsd = (x) => round2(x * rate);
     } else if (p.currency === 'USD') {
       price = v;
@@ -72,7 +74,7 @@ export function summaryToListing(s: EbayItemSummary, opts: NormalizeOpts = {}): 
     raw: scrubSeller(s),
     ...(origin ? { origin } : {}),
     buyingOptions: Array.isArray(s.buyingOptions) ? s.buyingOptions.filter((o) => typeof o === 'string') : null,
-    ...(originalPrice !== null ? { originalPrice, originalCurrency: 'CAD' } : {}),
+    ...(originalPrice !== null ? { originalPrice, originalCurrency } : {}),
     ...(auction ? { auction } : {}),
   };
 }

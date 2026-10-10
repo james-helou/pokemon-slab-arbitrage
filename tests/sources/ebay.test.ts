@@ -294,7 +294,9 @@ describe('deal-mode normalization', () => {
     const cad: EbayItemSummary = {
       ...SUMMARY, price: { value: '490.00', currency: 'CAD', convertedFromValue: '350.00', convertedFromCurrency: 'USD' },
     };
-    expect(summaryToListing(cad, { origin: 'ca_bin', cadToUsd: 0.7 })!.price).toBe(350);
+    const l = summaryToListing(cad, { origin: 'ca_bin', cadToUsd: 0.7 })!;
+    expect(l.price).toBe(350);
+    expect(l).toMatchObject({ originalPrice: 350, originalCurrency: 'USD' });
     expect(summaryToListing(cad, { origin: 'ca_bin' })).toBeNull();
     expect(summaryToListing(cad)).toBeNull();
   });

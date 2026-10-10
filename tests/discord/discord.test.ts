@@ -87,6 +87,16 @@ describe('buildAlertPayload', () => {
     expect(fields['Buy total']).toContain('list C$630.00 (≈ $450.00)');
   });
 
+  it('shows no CAD list line when the seller listed in USD', async () => {
+    const { rec } = await setupRec();
+    const p = buildAlertPayload({
+      ...rec, listingSnapshot: { ...rec.listingSnapshot, price: 350, originalPrice: 350, originalCurrency: 'USD' },
+    });
+    const fields = Object.fromEntries((p.embeds[0]!.fields ?? []).map((f) => [f.name, f.value]));
+    expect(fields['Buy total']).toContain('list $350.00');
+    expect(fields['Buy total']).not.toContain('C$350');
+  });
+
   it('caps field values at 1024 and uses a main image and a Why field', async () => {
     const { rec } = await setupRec();
     const p = buildAlertPayload({ ...rec, redFlags: ['x'.repeat(3000)] });
@@ -278,6 +288,17 @@ describe('buildAlertPayload offer', () => {
     const rec = await offerRec();
     const f = Object.fromEntries((buildAlertPayload(rec, { usdCad: 1.4 }).embeds[0]!.fields ?? []).map((x) => [x.name, x.value]));
     expect(f['Make an offer']).toContain('Offer $350 (≈ C$490.00)');
+  });
+
+  it('leads a CA offer with the CAD amount (rounded down to C$5) and keeps the CAD list line', async () => {
+    const rec = await offerRec();
+    const ca = { ...rec, listingSnapshot: { ...rec.listingSnapshot, originalPrice: 630, originalCurrency: 'CAD' as const } };
+    const f = Object.fromEntries((buildAlertPayload(ca, { usdCad: 1.4 }).embeds[0]!.fields ?? []).map((x) => [x.name, x.value]));
+    expect(f['Make an offer']).toContain('Offer C$490 (≈ $350, 22% under ask C$630.00)');
+    expect(f['Buy total at offer']).toContain('offer $350');
+    // 350 * 1.37 = 479.5 -> C$475
+    const g = Object.fromEntries((buildAlertPayload(ca, { usdCad: 1.37 }).embeds[0]!.fields ?? []).map((x) => [x.name, x.value]));
+    expect(g['Make an offer']).toContain('Offer C$475 (≈ $350, 25% under ask C$630.00)');
   });
 
   it('leaves bin payloads without offer text', async () => {

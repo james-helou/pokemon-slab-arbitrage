@@ -43,8 +43,8 @@ export function createCaScan(deps: CaScanDeps): () => Promise<CaScanSummary> {
     const results = await deps.ebay.searchNewGraded();
     summary.seen = results.length;
     for (const s of results) {
-      // FIXED_PRICE+AUCTION items belong to the auction scan.
-      if (settings.auctionMode && s.buyingOptions?.includes('AUCTION')) continue;
+      // Auction-only and bid-on items belong to the auction scan (the BIN option disappears after the first bid).
+      if (settings.auctionMode && s.buyingOptions?.includes('AUCTION') && ((s.bidCount ?? 0) > 0 || !s.buyingOptions.includes('FIXED_PRICE'))) continue;
       const listing = summaryToListing(s, { origin: 'ca_bin', cadToUsd });
       if (!listing) continue;
       const owner = await listingOrigin(deps.db, listing);

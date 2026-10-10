@@ -65,6 +65,9 @@ export async function dueOutcomes(db: Db, now: Date, limit: number): Promise<Due
      from recommendations r
      cross join (values ${HORIZON_VALUES}) as h(horizon)
      where r.kind <> 'auction'
+       and not exists (
+         select 1 from listings l where l.source = r.source and l.external_id = r.external_id and l.origin <> 'us_bin'
+       )
        and r.created_at + make_interval(days => h.horizon) <= $1::timestamptz
        and not exists (select 1 from outcomes o where o.recommendation_id = r.id and o.horizon_days = h.horizon)
      group by r.id

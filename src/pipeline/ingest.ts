@@ -23,7 +23,8 @@ export async function ingestListing(
   if (!(await needsEvaluation(deps.db, listing))) return;
   try {
     const outcome = await evaluateListing(deps, listing, settings, channels);
-    await markEvaluated(deps.db, listing, deps.now());
+    // An auction with no cached valuation yet is retried by the next auction scan (no getItem is spent on it).
+    if (!(listing.origin === 'auction' && outcome.status === 'no_valuation')) await markEvaluated(deps.db, listing, deps.now());
     summary.outcomes[outcome.status] = (summary.outcomes[outcome.status] ?? 0) + 1;
   } catch (err) {
     summary.errors++;
