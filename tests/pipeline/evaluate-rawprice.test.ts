@@ -83,7 +83,8 @@ describe('evaluateListing raw-price pre-filter', () => {
 
   it('uses the grade multiplier map, falling back to default', async () => {
     // grade 10 multiplier overridden to 100: ceiling 1000, passes
-    const r = await run(10, { rawCeilingMultipliers: { '10': 100, default: 4 } });
+    // (raw 10 is unpromising, so the valuation must be a cached ppt one to proceed)
+    const r = await run(10, { rawCeilingMultipliers: { '10': 100, default: 4 } }, {}, async () => ({ ...VALUATION, compsSource: 'ppt' }));
     expect(r.outcome.status).toBe('recommended');
   });
 
@@ -104,9 +105,21 @@ describe('evaluateListing promise triage (spend flag)', () => {
     expect(r.outcome.status).toBe('recommended');
   });
 
-  it('passes spend:false for an unpromising listing and still uses a cached valuation if one comes back', async () => {
-    const r = await run(50); // estimate 400, 0.8 * 400 = 320 < cost; ceiling 1250 still passes the old pre-filter
+  it('passes spend:false for an unpromising listing and still uses a cached ppt valuation if one comes back', async () => {
+    const r = await run(50, {}, {}, async () => ({ ...VALUATION, compsSource: 'ppt' })); // estimate 400, 0.8 * 400 = 320 < cost
     expect(r.spends).toEqual([false]);
+    expect(r.outcome.status).toBe('recommended');
+  });
+
+  it('fails closed: an unpromising listing whose valuation is not ppt (own comps) is no_valuation/not_promising', async () => {
+    const r = await run(50, {}, {}, async () => ({ ...VALUATION, compsSource: 'own_db' }));
+    expect(r.spends).toEqual([false]);
+    expect(r.outcome).toEqual({ status: 'no_valuation', reasons: ['not_promising'] });
+  });
+
+  it('a promising listing with an own-comps valuation proceeds unchanged', async () => {
+    const r = await run(100, {}, {}, async () => ({ ...VALUATION, compsSource: 'own_db' }));
+    expect(r.spends).toEqual([true]);
     expect(r.outcome.status).toBe('recommended');
   });
 

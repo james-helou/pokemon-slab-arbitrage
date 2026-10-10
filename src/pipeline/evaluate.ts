@@ -88,6 +88,8 @@ export async function evaluateListing(
 
   const valuation = await deps.valuate(key, settings, { spend: promising });
   if (!valuation) return { status: 'no_valuation', reasons: promising ? [] : ['not_promising'] };
+  // Triage only ever withholds spending. An unpromising listing must not fall through to a different source (own comps).
+  if (!promising && valuation.compsSource !== 'ppt') return { status: 'no_valuation', reasons: ['not_promising'] };
   if (deps.now().getTime() - valuation.computedAt.getTime() > settings.valuationMaxAgeHours * 3_600_000) {
     return { status: 'rejected', reasons: ['stale_valuation'] };
   }
