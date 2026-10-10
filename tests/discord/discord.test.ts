@@ -68,6 +68,25 @@ describe('buildAlertPayload', () => {
     }
   });
 
+  it('keeps eBay.ca links and still rejects look-alikes', async () => {
+    const { rec } = await setupRec();
+    const ok = buildAlertPayload({ ...rec, listingSnapshot: { ...rec.listingSnapshot, url: 'https://www.ebay.ca/itm/123' } });
+    expect(ok.embeds[0]!.url).toBe('https://www.ebay.ca/itm/123');
+    for (const url of ['http://ebay.ca/itm/1', 'https://ebay.ca.evil.com/itm/1', 'https://evilebay.ca/itm/1']) {
+      const p = buildAlertPayload({ ...rec, listingSnapshot: { ...rec.listingSnapshot, url } });
+      expect(p.embeds[0]!.url).toBeUndefined();
+    }
+  });
+
+  it('shows the CAD list price on the Buy total line of a CA listing', async () => {
+    const { rec } = await setupRec();
+    const p = buildAlertPayload({
+      ...rec, listingSnapshot: { ...rec.listingSnapshot, price: 450, originalPrice: 630, originalCurrency: 'CAD' },
+    });
+    const fields = Object.fromEntries((p.embeds[0]!.fields ?? []).map((f) => [f.name, f.value]));
+    expect(fields['Buy total']).toContain('list C$630.00 (≈ $450.00)');
+  });
+
   it('caps field values at 1024 and uses a main image and a Why field', async () => {
     const { rec } = await setupRec();
     const p = buildAlertPayload({ ...rec, redFlags: ['x'.repeat(3000)] });

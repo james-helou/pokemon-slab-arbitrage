@@ -21,7 +21,7 @@ const truncate = (s: string, max: number) => (s.length > max ? `${s.slice(0, max
 function safeEbayUrl(raw: string): string | null {
   try {
     const u = new URL(raw);
-    const ok = u.protocol === 'https:' && (u.hostname === 'ebay.com' || u.hostname.endsWith('.ebay.com'));
+    const ok = u.protocol === 'https:' && ['ebay.com', 'ebay.ca'].some((d) => u.hostname === d || u.hostname.endsWith(`.${d}`));
     return ok ? u.toString() : null;
   } catch {
     return null;
@@ -69,6 +69,8 @@ export function buildAlertPayload(r: StoredRecommendation, opts?: { usdCad?: num
     r.redFlags.length > 0 ? `flags: ${r.redFlags.join(', ')}` : 'no red flags',
   ].join('\n');
 
+  const snap = r.listingSnapshot;
+  const cadList = snap.originalCurrency === 'CAD' && snap.originalPrice != null ? `C$${snap.originalPrice.toFixed(2)} (≈ ${usd(snap.price)})` : null;
   const offer = r.kind === 'offer' && r.suggestedPrice != null ? r.suggestedPrice : null;
   const offerField: NonNullable<APIEmbed['fields']> = offer === null ? [] : [{
     name: 'Make an offer',
@@ -97,12 +99,13 @@ export function buildAlertPayload(r: StoredRecommendation, opts?: { usdCad?: num
     })(),
   ];
 
+  const buyPart = auction !== null ? usd(r.suggestedPrice!) : offer !== null ? usd(offer) : (cadList ?? usd(snap.price));
   const fields: NonNullable<APIEmbed['fields']> = [
     ...offerField,
     ...auctionFields,
     {
       name: auction !== null ? 'Buy total at max bid' : offer === null ? 'Buy total' : 'Buy total at offer',
-      value: `${usd(r.buyTotal)}${cadSuffix(r.buyTotal, rate)} (${auction !== null ? 'max bid' : offer === null ? 'list' : 'offer'} ${usd(auction !== null ? r.suggestedPrice! : offer ?? r.listingSnapshot.price)} + ${ship} + tax)`,
+      value: `${usd(r.buyTotal)}${cadSuffix(r.buyTotal, rate)} (${auction !== null ? 'max bid' : offer === null ? 'list' : 'offer'} ${buyPart} + ${ship} + tax)`,
     },
     {
       name: 'Market value',

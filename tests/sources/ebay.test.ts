@@ -105,6 +105,20 @@ describe('eBay client', () => {
     expect(f.reqs[0]!.headers['X-EBAY-C-MARKETPLACE-ID']).toBe('EBAY_US');
   });
 
+  it('CA client uses EBAY_CA on search and getItem with a CAD, CA-located filter', async () => {
+    const f = recordingFetch();
+    const c = createEbayClient({
+      clientId: 'id', clientSecret: 'secret', fetchFn: f.fn, now: () => NOW, categoryIds: '183454', query: 'pokemon',
+      minPrice: 25, budget: noBudget, buyerLocation: { country: 'CA' }, marketplaceId: 'EBAY_CA', itemLocationCountry: 'CA',
+    });
+    await c.searchNewGraded();
+    await c.getItem('v1|111|0');
+    expect(f.reqs.map((r) => r.headers['X-EBAY-C-MARKETPLACE-ID'])).toEqual(['EBAY_CA', 'EBAY_CA']);
+    expect(new URL(f.reqs[0]!.url).searchParams.get('filter')).toBe(
+      'buyingOptions:{FIXED_PRICE},conditionIds:{2750},price:[25..],priceCurrency:CAD,itemLocationCountry:CA,deliveryCountry:CA',
+    );
+  });
+
   it('counts auction searches against the budget', async () => {
     let n = 0;
     const budget: Budget = { limit: 5000, beforeCall: async () => { n++; }, usedToday: async () => n };
@@ -205,6 +219,36 @@ describe('normalize: no eBay user data persisted', () => {
     const merged = mergeItemDetails(base, { ...ITEM, seller: { username: 'someseller', feedbackScore: 500 } })!;
     expect(merged.sellerUsername).toBeNull();
     expect(JSON.stringify(merged.raw)).not.toContain('someseller');
+  });
+});
+
+describe('eBay.ca shapes', () => {
+  // Observed in production (EBAY_CA, CA-located): ids are identical across marketplaces.
+  const caSummary: EbayItemSummary = {
+    ...SUMMARY, itemId: 'v1|147629684283|0', legacyItemId: '147629684283',
+    itemWebUrl: 'https://www.ebay.ca/itm/147629684283?_skw=pokemon+psa&hash=item225f6a363b:g:2zkAAeSwjuZqyoM6',
+    price: { value: '600.00', currency: 'CAD' },
+    shippingOptions: [{ shippingCostType: 'FIXED', shippingCost: { value: '12.50', currency: 'CAD' } }],
+    buyingOptions: ['FIXED_PRICE', 'BEST_OFFER'],
+  };
+
+  it('converts a CAD summary to USD and keeps the original', () => {
+    const l = summaryToListing(caSummary, { origin: 'ca_bin', cadToUsd: 1 / 1.4 })!;
+    expect(l).toMatchObject({
+      externalId: 'v1|147629684283|0', price: 428.57, shipping: 8.93, originalPrice: 600, originalCurrency: 'CAD', origin: 'ca_bin',
+    });
+    expect(l.url).toContain('ebay.ca');
+  });
+
+  it('treats a USD price converted from CAD (US scan seeing a CA item) as plain USD', () => {
+    const us: EbayItemSummary = {
+      ...caSummary, itemWebUrl: 'https://www.ebay.com/itm/147629684283',
+      price: { value: '420.85', currency: 'USD', convertedFromValue: '600.00', convertedFromCurrency: 'CAD' },
+      shippingOptions: [{ shippingCostType: 'FIXED', shippingCost: { value: '8.77', currency: 'USD', convertedFromValue: '12.50', convertedFromCurrency: 'CAD' } }],
+    };
+    const l = summaryToListing(us)!;
+    expect(l).toMatchObject({ price: 420.85, shipping: 8.77, currency: 'USD' });
+    expect(l.originalPrice).toBeUndefined();
   });
 });
 

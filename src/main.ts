@@ -15,6 +15,7 @@ import { getValuation } from './oracle/oracle.js';
 import { buildOracleDeps } from './oracle/oracle-wiring.js';
 import { runOutcomes } from './outcomes/outcome-tracker.js';
 import { auctionScan } from './pipeline/auction-scan.js';
+import { createCaScan } from './pipeline/ca-scan.js';
 import type { EvaluateDeps } from './pipeline/evaluate.js';
 import { getRawPrice } from './rawprice/raw-price.js';
 import { scanCycle } from './pipeline/scan-cycle.js';
@@ -47,6 +48,15 @@ async function main() {
       ? { buyerLocation: { country: cfg.EBAY_BUYER_COUNTRY, ...(cfg.EBAY_BUYER_POSTAL_CODE ? { postalCode: cfg.EBAY_BUYER_POSTAL_CODE } : {}) } }
       : {}),
   });
+  // Canadian buyer: a second client on eBay.ca (CAD, CA-located items), sharing the same daily call budget.
+  const ebayCa = cfg.EBAY_BUYER_COUNTRY === 'CA'
+    ? createEbayClient({
+        clientId: cfg.EBAY_CLIENT_ID, clientSecret: cfg.EBAY_CLIENT_SECRET, fetchFn: fetch, now,
+        categoryIds: cfg.EBAY_CATEGORY_IDS, query: cfg.EBAY_QUERY, minPrice: cfg.EBAY_MIN_PRICE, budget,
+        buyerLocation: { country: 'CA', ...(cfg.EBAY_BUYER_POSTAL_CODE ? { postalCode: cfg.EBAY_BUYER_POSTAL_CODE } : {}) },
+        marketplaceId: 'EBAY_CA', itemLocationCountry: 'CA',
+      })
+    : undefined;
   // COMPS_SOURCE picks fixture (sample comps) or poketrace (aggregates + own DB comps, fixture excluded).
   const oracle = await buildOracleDeps(cfg, { db, now, log, fetch });
   const valuate: EvaluateDeps['valuate'] = (key, settings, opts) => getValuation(oracle, key, settings, opts);
@@ -57,6 +67,10 @@ async function main() {
 
   // Canadian buyer: alerts also show CAD amounts at the daily-ish ECB rate.
   const usdCad = cfg.EBAY_BUYER_COUNTRY === 'CA' ? createUsdCadRate({ fetch, now, log }) : undefined;
+
+  const caScan = ebayCa && usdCad
+    ? createCaScan({ db, ebay: ebayCa, budget, usdCad, valuate, rawPrice, now, log, ...(soldCheck ? { soldCheck } : {}) })
+    : undefined;
 
   const bot = await startBot({
     token: cfg.DISCORD_TOKEN, appId: cfg.DISCORD_APP_ID, guildId: cfg.DISCORD_GUILD_ID,
@@ -70,8 +84,11 @@ async function main() {
   const stopScan = every(
     async () => (await loadSettings(db)).scanIntervalSeconds * 1000,
     async () => {
-      const s = await scanCycle({ db, ebay, budget, valuate, rawPrice, now, log, ...(soldCheck ? { soldCheck } : {}) }, cycle++);
+      const c = cycle++;
+      const s = await scanCycle({ db, ebay, budget, valuate, rawPrice, now, log, ...(soldCheck ? { soldCheck } : {}) }, c);
       log('info', 'scan cycle', { ...s });
+      const settings = await loadSettings(db);
+      if (caScan && settings.caScan && c % settings.caScanEveryNCycles === 0) log('info', 'ca scan', { ...(await caScan()) });
     },
     log,
     'scan',

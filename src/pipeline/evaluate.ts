@@ -29,6 +29,8 @@ export interface EvaluateDeps {
   soldCheck?: SoldCheck;
   /** Free raw (ungraded) USD price for a card, or null when unknown. Absent: no raw-price pre-filter or flag. */
   rawPrice?: (cardId: string) => Promise<number | null>;
+  /** CAD -> USD rate, set by the eBay.ca scan so a CAD getItem response is converted like its summary. */
+  cadToUsd?: number;
 }
 
 export type EvaluateStatus =
@@ -134,7 +136,7 @@ export async function evaluateListing(
     await markGone(db, listing, deps.now(), item ? 'out_of_stock' : 'not_found');
     return { status: 'gone', reasons: [] };
   }
-  const enriched = mergeItemDetails(listing, item);
+  const enriched = mergeItemDetails(listing, item, deps.cadToUsd === undefined ? {} : { cadToUsd: deps.cadToUsd });
   if (!enriched) return { status: 'rejected', reasons: ['invalid_listing'] };
   await upsertListing(db, enriched, deps.now());
 

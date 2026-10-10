@@ -48,6 +48,10 @@ export interface EbayClientOptions {
   budget: Budget;
   /** When set, eBay quotes shipping to this location and the search keeps only listings that ship to its country. */
   buyerLocation?: { country: string; postalCode?: string };
+  /** Default EBAY_US. EBAY_CA quotes prices and shipping in CAD. */
+  marketplaceId?: 'EBAY_US' | 'EBAY_CA';
+  /** Keeps only listings located in this country (search filter itemLocationCountry). */
+  itemLocationCountry?: string;
 }
 
 export function createEbayClient(o: EbayClientOptions): EbayClient {
@@ -84,7 +88,7 @@ export function createEbayClient(o: EbayClientOptions): EbayClient {
       const res = await o.fetchFn(`${API}${path}`, {
         headers: {
           Authorization: `Bearer ${await getToken()}`,
-          'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US',
+          'X-EBAY-C-MARKETPLACE-ID': o.marketplaceId ?? 'EBAY_US',
           ...(endUserCtx ? { 'X-EBAY-C-ENDUSERCTX': endUserCtx } : {}),
         },
       });
@@ -98,7 +102,7 @@ export function createEbayClient(o: EbayClientOptions): EbayClient {
       const params = new URLSearchParams({
         q: o.query,
         category_ids: o.categoryIds,
-        filter: `buyingOptions:{FIXED_PRICE},conditionIds:{2750},price:[${o.minPrice}..],priceCurrency:USD${o.buyerLocation ? `,deliveryCountry:${o.buyerLocation.country}` : ''}`,
+        filter: `buyingOptions:{FIXED_PRICE},conditionIds:{2750},price:[${o.minPrice}..],priceCurrency:${o.marketplaceId === 'EBAY_CA' ? 'CAD' : 'USD'}${o.itemLocationCountry ? `,itemLocationCountry:${o.itemLocationCountry}` : ''}${o.buyerLocation ? `,deliveryCountry:${o.buyerLocation.country}` : ''}`,
         sort: 'newlyListed',
         limit: '200',
       });
