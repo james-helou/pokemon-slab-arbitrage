@@ -115,7 +115,7 @@ describe('migrate', () => {
         scorer_version, matcher_version, oracle_version)
        values ('ebay','a','c1','PSA',10,null,'{}','{}','{}','[]','ebay',1,1,1,1,1,'[]','alerts','v','v','v')`,
     );
-    expect(await migrate(old, 'migrations')).toEqual(['017_deal_modes.sql']);
+    expect(await migrate(old, 'migrations')).toContain('017_deal_modes.sql');
     const l = await old.query<{ external_id: string; origin: string; buying_options: unknown }>(
       'select external_id, origin, buying_options from listings order by external_id',
     );

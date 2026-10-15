@@ -123,6 +123,18 @@ export async function markEvaluated(db: Db, l: Pick<Listing, 'source' | 'externa
   ]);
 }
 
+/** Stores the latest evaluation verdict on the listing (overwrites the previous one). */
+export async function recordEvalOutcome(
+  db: Db,
+  l: Pick<Listing, 'source' | 'externalId'>,
+  o: { status: string; reasons: string[]; detail?: Record<string, number | null> },
+): Promise<void> {
+  await db.query(
+    `update listings set eval_status = $3, eval_reasons = $4::jsonb, eval_detail = $5::jsonb where source = $1 and external_id = $2`,
+    [l.source, l.externalId, o.status, JSON.stringify(o.reasons), o.detail ? JSON.stringify(o.detail) : null],
+  );
+}
+
 export async function recordEvalFailure(db: Db, l: Pick<Listing, 'source' | 'externalId'>): Promise<void> {
   await db.query(`update listings set eval_attempts = eval_attempts + 1 where source = $1 and external_id = $2`, [
     l.source, l.externalId,

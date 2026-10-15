@@ -11,7 +11,7 @@ import { basicRedFlags } from '../risk/basic-flags.js';
 import { round2 } from '../scoring/fees.js';
 import { decideDeal, type DealMode } from '../scoring/deal-modes.js';
 import { maxBuyPrice } from '../scoring/max-buy-price.js';
-import { score } from '../scoring/scorer.js';
+import { score, type ScoreResult } from '../scoring/scorer.js';
 import { DEFAULT_SETTINGS, type Settings } from '../settings/settings.js';
 import { soldCheckVerdict, type SoldCheck, type SoldCheckSnapshot } from '../soldcheck/sold-check.js';
 import type { EbayClient } from '../sources/ebay/ebay-client.js';
@@ -40,6 +40,12 @@ export interface EvaluateOutcome {
   status: EvaluateStatus;
   reasons: string[];
   recommendationId?: number;
+  /** Numbers behind a score rejection, stored on the listing for "why didn't this alert?". */
+  detail?: Record<string, number | null>;
+}
+
+function scoreDetail(price: number, shipping: number, value: number, s: ScoreResult): Record<string, number | null> {
+  return { price, shipping, buyTotal: s.buyTotal, value, bestNet: s.bestNet, roi: s.roi };
 }
 
 function dealMode(l: Listing, settings: Settings): DealMode {
@@ -117,7 +123,12 @@ export async function evaluateListing(
     price: triagePrice, shipping: listing.shipping ?? settings.stage1ShippingEstimate, valuation, matchConfidence: first.match.confidence,
     redFlags: [], channels, settings, availableCash: cash,
   });
-  if (pre.decision === 'reject') return { status: 'rejected', reasons: pre.rejectReasons };
+  if (pre.decision === 'reject') {
+    return {
+      status: 'rejected', reasons: pre.rejectReasons,
+      detail: { ...scoreDetail(triagePrice, listing.shipping ?? settings.stage1ShippingEstimate, valuation.value, pre), stage: 1 },
+    };
+  }
 
   // Auctions: the most generous case (free shipping) still has to leave room under the alert fraction, else skip getItem.
   if (mode1 === 'auction') {
@@ -126,7 +137,10 @@ export async function evaluateListing(
       availableCash: cash,
     });
     if (optimistic === null || listing.price > settings.auctionAlertPct * optimistic) {
-      return { status: 'rejected', reasons: ['auction_bid_too_high'] };
+      return {
+        status: 'rejected', reasons: ['auction_bid_too_high'],
+        detail: { price: listing.price, value: valuation.value, maxBid: optimistic, stage: 1 },
+      };
     }
   }
 
@@ -149,7 +163,9 @@ export async function evaluateListing(
   const gate2 = gate(m, settings);
   if (gate2) return gate2;
 
-  if (enriched.shipping === null) return { status: 'rejected', reasons: ['shipping_unknown'] };
+  if (enriched.shipping === null) {
+    return { status: 'rejected', reasons: ['shipping_unknown'], detail: { price: enriched.price, value: valuation.value } };
+  }
 
   const redFlags = basicRedFlags(enriched, m);
   if (rawUsd !== null && valuation.value < rawUsd) {
@@ -166,7 +182,10 @@ export async function evaluateListing(
   });
   const final = d.score;
   if (d.kind === null || final.decision === 'reject' || final.bestChannel === null) {
-    return { status: 'rejected', reasons: d.reasons.length > 0 ? d.reasons : final.rejectReasons };
+    return {
+      status: 'rejected', reasons: d.reasons.length > 0 ? d.reasons : final.rejectReasons,
+      detail: { ...scoreDetail(enriched.price, enriched.shipping, valuation.value, final), maxPrice: d.maxPrice, stage: 2 },
+    };
   }
 
   const card = await getCard(db, key.cardId);

@@ -1,6 +1,6 @@
 import type { Channel } from '../channels/channels.js';
 import type { Listing } from '../domain/types.js';
-import { markEvaluated, needsEvaluation, recordEvalFailure, upsertListing } from '../listings/listings-repo.js';
+import { markEvaluated, needsEvaluation, recordEvalFailure, recordEvalOutcome, upsertListing } from '../listings/listings-repo.js';
 import type { Settings } from '../settings/settings.js';
 import { evaluateListing, type EvaluateDeps } from './evaluate.js';
 
@@ -25,6 +25,9 @@ export async function ingestListing(
     const outcome = await evaluateListing(deps, listing, settings, channels);
     // An auction with no cached valuation yet is retried by the next auction scan (no getItem is spent on it).
     if (!(listing.origin === 'auction' && outcome.status === 'no_valuation')) await markEvaluated(deps.db, listing, deps.now());
+    // Diagnostics only: a failed write must not turn a finished evaluation into an error (and a retry).
+    await recordEvalOutcome(deps.db, listing, outcome).catch((err: unknown) =>
+      deps.log('warn', 'eval outcome not recorded', { externalId: listing.externalId, err: String(err) }));
     summary.outcomes[outcome.status] = (summary.outcomes[outcome.status] ?? 0) + 1;
   } catch (err) {
     summary.errors++;
