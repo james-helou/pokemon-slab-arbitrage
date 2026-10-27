@@ -15,7 +15,7 @@ import { score, type ScoreResult } from '../scoring/scorer.js';
 import { DEFAULT_SETTINGS, type Settings } from '../settings/settings.js';
 import { soldCheckVerdict, type SoldCheck, type SoldCheckSnapshot } from '../soldcheck/sold-check.js';
 import type { EbayClient } from '../sources/ebay/ebay-client.js';
-import { isOutOfStock, mergeItemDetails } from '../sources/ebay/normalize.js';
+import { isOutOfStock, itemCountry, mergeItemDetails } from '../sources/ebay/normalize.js';
 
 export interface EvaluateDeps {
   db: Db;
@@ -74,7 +74,7 @@ export async function evaluateListing(
   const lookup: CandidateLookup = (n, t, set) => (set ? findCandidatesInSet(db, set, n) : findCandidates(db, n, t));
   const sets: SetLister = () => listSets(db);
 
-  const first = await matchListing({ title: listing.title, aspects: listing.aspects }, lookup, sets);
+  const first = await matchListing({ title: listing.title, aspects: listing.aspects, itemCountry: itemCountry(listing) }, lookup, sets);
   await insertMatch(db, listing, first, 'title');
   if (!first.match) return { status: 'no_match', reasons: first.reasons };
   const gate1 = gate(first.match, settings);
@@ -153,7 +153,7 @@ export async function evaluateListing(
   if (!enriched) return { status: 'rejected', reasons: ['invalid_listing'] };
   await upsertListing(db, enriched, deps.now());
 
-  const second = await matchListing({ title: enriched.title, aspects: enriched.aspects }, lookup, sets);
+  const second = await matchListing({ title: enriched.title, aspects: enriched.aspects, itemCountry: itemCountry(enriched) }, lookup, sets);
   await insertMatch(db, enriched, second, 'enriched');
   if (!second.match) return { status: 'no_match', reasons: second.reasons };
   const m = second.match;

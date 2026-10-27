@@ -1,6 +1,7 @@
 import type { CompKind } from '../domain/types.js';
 
-export const ORACLE_VERSION = 'v1.2.0';
+// v1.3.0: PPT parser v1.1.0 prices multi-printing (vintage) cards from Unlimited-only sales; older rows are ignored.
+export const ORACLE_VERSION = 'v1.3.0';
 
 export interface CompPoint {
   price: number;

@@ -3,7 +3,7 @@ import type { Grader, Match } from '../domain/types.js';
 import { resolveTitleSetHit, setTokens, type SetHit, type SetRef } from './set-names.js';
 import { aspectTextFlags, normalizeNumber, parsePromos, parseTitle } from './title-parse.js';
 
-export const MATCHER_VERSION = 'v1.2.0';
+export const MATCHER_VERSION = 'v1.3.0';
 
 /**
  * Cards with this number. With `setId` (a promo set, or the set named in a PSA label title) the search is that set
@@ -94,13 +94,17 @@ const promoKey = (p: { promoSet: string; number: string }) => `${p.promoSet}:${N
  * number whose name is in the title.
  */
 export async function matchListing(
-  input: { title: string; aspects: Record<string, string> },
+  input: { title: string; aspects: Record<string, string>; itemCountry?: string | null },
   lookup: CandidateLookup,
   listSets?: SetLister,
 ): Promise<MatchResult> {
   const p = parseTitle(input.title);
   const lang = input.aspects['Language'];
   if (lang && !/english/i.test(lang) && !p.flags.includes('non_english')) p.flags.push('non_english');
+  // Shipped from Japan with nothing saying English: almost always a Japanese print (live alerts 2026-10).
+  if (input.itemCountry === 'JP' && !/english/i.test(lang ?? '') && !/\b(english|eng)\b/i.test(input.title) && !p.flags.includes('non_english')) {
+    p.flags.push('non_english');
+  }
   for (const k of TEXT_ASPECTS) {
     for (const f of input.aspects[k] ? aspectTextFlags(input.aspects[k]!) : []) if (!p.flags.includes(f)) p.flags.push(f);
   }

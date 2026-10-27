@@ -210,6 +210,28 @@ describe('parseTitle refusals found by the live-catalog probe', () => {
     expect(parseTitle(title).flags).toContain('non_english');
   });
 
+  // Live alerts 2026-10-13..27: Japanese 151 cards (shipped from JP) use the same numbers as the English set.
+  it.each([
+    'Bulbasaur AR 166/165 PSA 10 Pokemon',
+    'Charmander 168/165 AR Pokemon PSA 10',
+    'Pikachu ex SAR 132/106 PSA 10',
+    'Umbreon V CSR 177/172 PSA 10',
+    'Mew ex CHR 179/165 PSA 10',
+    'Pikachu Special Art Rare 132/106 PSA 10',
+  ])('flags a Japanese-only rarity code as non-English: %s', (title) => {
+    expect(parseTitle(title).flags).toContain('non_english');
+  });
+
+  it.each([
+    'Charizard ex SIR 199/165 PSA 10',
+    'Charmander IR 168/165 Illustration Rare PSA 10',
+    'Venusaur ex 198/165 Ultra Rare Full Art Rare PSA 10',
+    'Arcanine 23/64 Jungle PSA 9 Rare Art',
+    'Pikachu ar 25/102 PSA 9',
+  ])('does not flag English rarity wording: %s', (title) => {
+    expect(parseTitle(title).flags).not.toContain('non_english');
+  });
+
   it.each([
     'Pokémon TCG Team Rocket\'s Mewtwo ex 213/182 Sv10 PSA 10',
     'Pokemon Bulbasaur 133/132 Me01: Mega Evolution (2025) EN Holo PSA 9',

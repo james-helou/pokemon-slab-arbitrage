@@ -15,7 +15,7 @@ const NEGATIVE_TTL_MS = 7 * 86_400_000;
 const FAILED_TTL_MS = 3_600_000;
 const WINDOW_DAYS = 30;
 /** Bump when the parser is verified or changed; the probe prints it. */
-export const PPT_PARSER_VERSION: string = 'v1.0.0';
+export const PPT_PARSER_VERSION: string = 'v1.1.0';
 
 /** PPT's grade key: lowercase grader + grade with _ for decimals (psa10, psa8_5, bgs9_5). */
 function gradeKey(key: Pick<Key, 'grader' | 'grade'>): string {
@@ -65,6 +65,14 @@ export function parsePptCard(body: unknown, key: Pick<Key, 'grader' | 'grade' | 
     if (c !== undefined && c !== null && (typeof c !== 'string' || c.toUpperCase() !== 'USD')) return null;
   }
   const k = gradeKey(key);
+  // salesByGrade pools every printing of the product (1st Edition, Shadowless and Unlimited sell under one TCGplayer
+  // id), so a vintage card would be valued at 1st Edition prices. The matcher refuses edition titles, so a
+  // multi-printing card is priced from its Unlimited printing alone, or not at all.
+  const printings = new Set([
+    ...(isObj(card['variants']) ? Object.keys(card['variants']) : []),
+    ...(isObj(ebay['salesByPrinting']) ? Object.keys(ebay['salesByPrinting']) : []),
+  ]);
+  if (printings.size > 1) return parseUnlimitedPrinting(ebay, k, ctx);
   const byGrade = ebay['salesByGrade'];
   const g = isObj(byGrade) ? byGrade[k] : undefined;
   if (!isObj(g)) return null;
@@ -107,6 +115,57 @@ export function parsePptCard(body: unknown, key: Pick<Key, 'grader' | 'grade' | 
     saleCount,
     windowDays: daysUsed,
     confidence: Math.round((0.4 * Math.min(1, saleCount / 8) + 0.3 * recency + 0.3 * (confidence === 'high' ? 1 : 0.7)) * 1000) / 1000,
+    asOf,
+    sourceName: 'ppt',
+  };
+}
+
+/** Fewest Unlimited-printing sales in the window to price a multi-printing card (PPT keeps only a few days of these). */
+export const MIN_PRINTING_SALES = 3;
+
+/**
+ * Prices a multi-printing card from `salesByPrinting[<the one Unlimited printing>].priceHistory[grade]`: daily
+ * { count, average } points within WINDOW_DAYS, value = count-weighted median of the daily averages. null when there
+ * is not exactly one Unlimited printing, fewer than MIN_PRINTING_SALES sales, or the data is stale.
+ */
+function parseUnlimitedPrinting(ebay: Record<string, unknown>, k: string, ctx: ParseCtx): AggregatePrice | null {
+  const byPrinting = ebay['salesByPrinting'];
+  if (!isObj(byPrinting)) return null;
+  const unlimited = Object.keys(byPrinting).filter((p) => /^unlimited\b/i.test(p) && !/reverse/i.test(p));
+  if (unlimited.length !== 1) return null;
+  const entry = byPrinting[unlimited[0]!];
+  const history = isObj(entry) && isObj(entry['priceHistory']) ? entry['priceHistory'][k] : undefined;
+  if (!isObj(history)) return null;
+
+  const points: { average: number; count: number; day: number }[] = [];
+  for (const [day, p] of Object.entries(history)) {
+    const t = new Date(`${day.slice(0, 10)}T00:00:00Z`).getTime();
+    if (!isObj(p) || Number.isNaN(t) || ctx.now.getTime() - t > WINDOW_DAYS * 86_400_000) continue;
+    const average = p['average'];
+    const count = p['count'];
+    if (!positive(average) || typeof count !== 'number' || !Number.isInteger(count) || count < 1) continue;
+    points.push({ average, count, day: t });
+  }
+  const saleCount = points.reduce((n, p) => n + p.count, 0);
+  if (saleCount < MIN_PRINTING_SALES) return null;
+
+  const stamp = typeof ebay['updatedAt'] === 'string' ? new Date(ebay['updatedAt']) : null;
+  const asOf = stamp && !Number.isNaN(stamp.getTime()) ? stamp : (ctx.fetchedAt ?? ctx.now);
+  if (ctx.now.getTime() - asOf.getTime() > MAX_STAMP_AGE_MS) return null;
+
+  points.sort((a, b) => a.average - b.average);
+  let seen = 0;
+  const value = points.find((p) => (seen += p.count) >= saleCount / 2)!.average;
+  const newest = Math.max(...points.map((p) => p.day));
+  const windowDays = Math.max(1, Math.ceil((ctx.now.getTime() - Math.min(...points.map((p) => p.day))) / 86_400_000));
+  const recency = ctx.now.getTime() - newest <= 7 * 86_400_000 ? 1 : 0.7;
+  return {
+    value: Math.round(value * 100) / 100,
+    low: points[0]!.average,
+    high: points[points.length - 1]!.average,
+    saleCount,
+    windowDays,
+    confidence: Math.round((0.4 * Math.min(1, saleCount / 8) + 0.3 * recency + 0.3 * 0.7) * 1000) / 1000,
     asOf,
     sourceName: 'ppt',
   };

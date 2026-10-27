@@ -69,6 +69,12 @@ describe('evaluateListing', () => {
     expect(getItemCalls()).toBe(0);
   });
 
+  it('stops at no_match for a listing shipped from Japan that does not say English', async () => {
+    const { outcome, getItemCalls } = await run(undefined, undefined, {}, { itemLocation: { country: 'JP' } } as Partial<EbayItemSummary>);
+    expect(outcome).toMatchObject({ status: 'no_match', reasons: expect.arrayContaining(['non_english']) as unknown });
+    expect(getItemCalls()).toBe(0);
+  });
+
   it('stops at the grader gate', async () => {
     expect((await run('CGC 10 Charizard ex 199/165')).outcome).toMatchObject({ status: 'grader_disabled' });
   });

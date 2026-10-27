@@ -33,6 +33,17 @@ describe('matchListing', () => {
     expect(r.reasons).toContain('non_english');
   });
 
+  it('rejects a listing shipped from Japan unless it says English', async () => {
+    const jp = await matchListing({ title: 'PSA 10 Charizard ex 199/165', aspects: {}, itemCountry: 'JP' }, lookupOf([CHARIZARD]));
+    expect(jp.reasons).toContain('non_english');
+    const enTitle = await matchListing({ title: 'PSA 10 Charizard ex 199/165 English', aspects: {}, itemCountry: 'JP' }, lookupOf([CHARIZARD]));
+    expect(enTitle.match).not.toBeNull();
+    const enAspect = await matchListing({ title: 'PSA 10 Charizard ex 199/165', aspects: { ...ASPECTS, Language: 'English' }, itemCountry: 'JP' }, lookupOf([CHARIZARD]));
+    expect(enAspect.match).not.toBeNull();
+    const us = await matchListing({ title: 'PSA 10 Charizard ex 199/165', aspects: {}, itemCountry: 'US' }, lookupOf([CHARIZARD]));
+    expect(us.match).not.toBeNull();
+  });
+
   it('rejects grader conflicts between title and aspects', async () => {
     const r = await matchListing({ title: 'CGC 10 Charizard ex 199/165', aspects: ASPECTS }, lookupOf([CHARIZARD]));
     expect(r.reasons).toEqual(['grader_conflict']);

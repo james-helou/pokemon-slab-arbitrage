@@ -35,6 +35,14 @@ const HASH_NUMBER_RE = /#\s?(\d{1,4})(?![\d/A-Z])/gi;
 const NON_ENGLISH_RE =
   /\b(japanese|japan|jpn|jp|korean|chinese|german|french|italian|spanish|portuguese|thai|indonesian)\b|\b(?:sv|sm|s|m)\d{1,2}[a-z]\b/i;
 /**
+ * Japanese-only rarity names: English prints say Illustration Rare / Special Illustration Rare (IR, SIR). Japanese sets
+ * such as 151 (sv2a) reuse the English numbers, so "Charmander AR 168/165" would otherwise match the English card.
+ * The codes are upper case only ("ar" is not a code); "Full Art Rare" is English wording.
+ */
+const JP_RARITY_RE = /\b(?:AR|SAR|CHR|CSR)\b/;
+const ART_RARE_RE = /(?<!full\s)\bart\s+rare\b/i;
+const isJpRarity = (s: string): boolean => JP_RARITY_RE.test(s) || ART_RARE_RE.test(s);
+/**
  * "x2" / "2x" / "x 3" / "lot" / "bundle" / "pair". An X that ends a card name is not a count: "LV.X 122/130",
  * "LV. X", "Mewtwo X 160/162" (a number followed by "/" is the card number).
  */
@@ -82,7 +90,7 @@ export function parsePromos(s: string, anchored = false, promoWord = PROMO_WORD_
  */
 export function aspectTextFlags(v: string): string[] {
   const out: string[] = [];
-  if (NON_ENGLISH_RE.test(v)) out.push('non_english');
+  if (NON_ENGLISH_RE.test(v) || isJpRarity(v)) out.push('non_english');
   if (VARIANT_RE.test(v)) out.push('variant');
   return out;
 }
@@ -98,7 +106,7 @@ function toGrader(s: string): Grader {
 
 export function parseTitle(title: string): TitleParse {
   const flags: string[] = [];
-  if (NON_ENGLISH_RE.test(title)) flags.push('non_english');
+  if (NON_ENGLISH_RE.test(title) || isJpRarity(title)) flags.push('non_english');
   if (LOT_RE.test(title)) flags.push('lot');
   if (VARIANT_RE.test(title)) flags.push('variant');
   if (NOT_AUTHENTIC_RE.test(title)) flags.push('not_authentic');

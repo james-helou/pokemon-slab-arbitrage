@@ -87,6 +87,12 @@ export function mergeItemDetails(listing: Listing, item: EbayItem, opts: Normali
   return { ...base, listedAt: base.listedAt ?? listing.listedAt, aspects, raw: scrubSeller(item) };
 }
 
+/** The country the item ships from (eBay itemLocation.country on the stored summary or getItem body), or null. */
+export function itemCountry(l: Pick<Listing, 'raw'>): string | null {
+  const loc = (l.raw as { itemLocation?: { country?: unknown } } | null)?.itemLocation;
+  return typeof loc?.country === 'string' ? loc.country : null;
+}
+
 export function isOutOfStock(item: EbayItem): boolean {
   return item.estimatedAvailabilities?.some((a) => a.estimatedAvailabilityStatus === 'OUT_OF_STOCK') ?? false;
 }
