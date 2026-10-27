@@ -15,7 +15,7 @@ const NEGATIVE_TTL_MS = 7 * 86_400_000;
 const FAILED_TTL_MS = 3_600_000;
 const WINDOW_DAYS = 30;
 /** Bump when the parser is verified or changed; the probe prints it. */
-export const PPT_PARSER_VERSION: string = 'v1.1.0';
+export const PPT_PARSER_VERSION: string = 'v1.2.0';
 
 /** PPT's grade key: lowercase grader + grade with _ for decimals (psa10, psa8_5, bgs9_5). */
 function gradeKey(key: Pick<Key, 'grader' | 'grade'>): string {
@@ -66,17 +66,27 @@ export function parsePptCard(body: unknown, key: Pick<Key, 'grader' | 'grade' | 
   }
   const k = gradeKey(key);
   // salesByGrade pools every printing of the product (1st Edition, Shadowless and Unlimited sell under one TCGplayer
-  // id), so a vintage card would be valued at 1st Edition prices. The matcher refuses edition titles, so a
-  // multi-printing card is priced from its Unlimited printing alone, or not at all.
-  const printings = new Set([
+  // id), so a vintage card would be valued at 1st Edition prices. The matcher refuses edition titles, so a card with
+  // an edition printing is priced from its Unlimited printing alone, or not at all. Modern cards (Holofoil + Reverse
+  // Holofoil) have no edition split and keep the pooled grade price.
+  const available = card['printingsAvailable'];
+  const printings = [
     ...(isObj(card['variants']) ? Object.keys(card['variants']) : []),
     ...(isObj(ebay['salesByPrinting']) ? Object.keys(ebay['salesByPrinting']) : []),
-  ]);
-  if (printings.size > 1) return parseUnlimitedPrinting(ebay, k, ctx);
-  const byGrade = ebay['salesByGrade'];
+    ...(Array.isArray(available) ? available.filter((p): p is string => typeof p === 'string') : []),
+  ];
+  if (printings.some((p) => EDITION_RE.test(p))) return parseUnlimitedPrinting(ebay, k, ctx);
+  return parseGradePrice(ebay, ebay['salesByGrade'], ebay['smartPriceOutlierByGrade'], k, ctx);
+}
+
+const EDITION_RE = /1st\s*edition|shadowless/i;
+
+/** PPT's smart price for one grade from a salesByGrade map (the pooled one, or one printing's own). */
+function parseGradePrice(
+  ebay: Record<string, unknown>, byGrade: unknown, outliers: unknown, k: string, ctx: ParseCtx,
+): AggregatePrice | null {
   const g = isObj(byGrade) ? byGrade[k] : undefined;
   if (!isObj(g)) return null;
-  const outliers = ebay['smartPriceOutlierByGrade'];
   if (isObj(outliers) && outliers[k] === true) return null;
 
   const sm = g['smartMarketPrice'];
@@ -124,9 +134,10 @@ export function parsePptCard(body: unknown, key: Pick<Key, 'grader' | 'grade' | 
 export const MIN_PRINTING_SALES = 3;
 
 /**
- * Prices a multi-printing card from `salesByPrinting[<the one Unlimited printing>].priceHistory[grade]`: daily
- * { count, average } points within WINDOW_DAYS, value = count-weighted median of the daily averages. null when there
- * is not exactly one Unlimited printing, fewer than MIN_PRINTING_SALES sales, or the data is stale.
+ * Prices an edition card from its one Unlimited printing: that printing's own smart grade price
+ * (`salesByPrinting[unlimited].salesByGrade[grade]`, same checks as the pooled one), else its daily history
+ * (`priceHistory[grade]`, { count, average } points within WINDOW_DAYS, value = count-weighted median). null when
+ * there is not exactly one Unlimited printing, fewer than MIN_PRINTING_SALES history sales, or the data is stale.
  */
 function parseUnlimitedPrinting(ebay: Record<string, unknown>, k: string, ctx: ParseCtx): AggregatePrice | null {
   const byPrinting = ebay['salesByPrinting'];
@@ -134,7 +145,10 @@ function parseUnlimitedPrinting(ebay: Record<string, unknown>, k: string, ctx: P
   const unlimited = Object.keys(byPrinting).filter((p) => /^unlimited\b/i.test(p) && !/reverse/i.test(p));
   if (unlimited.length !== 1) return null;
   const entry = byPrinting[unlimited[0]!];
-  const history = isObj(entry) && isObj(entry['priceHistory']) ? entry['priceHistory'][k] : undefined;
+  if (!isObj(entry)) return null;
+  const graded = parseGradePrice(ebay, entry['salesByGrade'], entry['smartPriceOutlierByGrade'], k, ctx);
+  if (graded) return graded;
+  const history = isObj(entry['priceHistory']) ? entry['priceHistory'][k] : undefined;
   if (!isObj(history)) return null;
 
   const points: { average: number; count: number; day: number }[] = [];

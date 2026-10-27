@@ -1,7 +1,8 @@
 import type { CompKind } from '../domain/types.js';
 
-// v1.3.0: PPT parser v1.1.0 prices multi-printing (vintage) cards from Unlimited-only sales; older rows are ignored.
-export const ORACLE_VERSION = 'v1.3.0';
+// v1.4.0: PPT parser v1.2.0 prices edition (1st Edition / Shadowless) cards from the Unlimited printing's own grade
+// price (history fallback); modern multi-printing cards use the pooled price again. Older rows are ignored.
+export const ORACLE_VERSION = 'v1.4.0';
 
 export interface CompPoint {
   price: number;

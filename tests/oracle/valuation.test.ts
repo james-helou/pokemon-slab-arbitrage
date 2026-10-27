@@ -5,8 +5,8 @@ const NOW = new Date('2026-10-03T12:00:00Z');
 const ago = (days: number) => new Date(NOW.getTime() - days * 86_400_000);
 const paid = (price: number, days: number): CompPoint => ({ price, soldAt: ago(days), kind: 'paid_source' });
 
-it('ORACLE_VERSION is v1.3.0 (vintage cards priced from Unlimited-only sales)', () => {
-  expect(ORACLE_VERSION).toBe('v1.3.0');
+it('ORACLE_VERSION is v1.4.0 (edition cards priced from the Unlimited printing)', () => {
+  expect(ORACLE_VERSION).toBe('v1.4.0');
 });
 
 describe('computeValuation', () => {

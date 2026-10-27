@@ -226,6 +226,9 @@ describe('parseTitle refusals found by the live-catalog probe', () => {
     'Charizard ex SIR 199/165 PSA 10',
     'Charmander IR 168/165 Illustration Rare PSA 10',
     'Venusaur ex 198/165 Ultra Rare Full Art Rare PSA 10',
+    'Umbreon VMAX Alt Art Rare 215/203 PSA 10',
+    'Rayquaza VMAX Alternate Art Rare 218/203 PSA 10',
+    'Charizard V Full-Art Rare 154/172 PSA 10',
     'Arcanine 23/64 Jungle PSA 9 Rare Art',
     'Pikachu ar 25/102 PSA 9',
   ])('does not flag English rarity wording: %s', (title) => {

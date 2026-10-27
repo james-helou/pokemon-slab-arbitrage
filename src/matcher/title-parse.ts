@@ -40,7 +40,7 @@ const NON_ENGLISH_RE =
  * The codes are upper case only ("ar" is not a code); "Full Art Rare" is English wording.
  */
 const JP_RARITY_RE = /\b(?:AR|SAR|CHR|CSR)\b/;
-const ART_RARE_RE = /(?<!full\s)\bart\s+rare\b/i;
+const ART_RARE_RE = /(?<!\b(?:full|alt|alternate)[\s-]*)\bart\s+rare\b/i;
 const isJpRarity = (s: string): boolean => JP_RARITY_RE.test(s) || ART_RARE_RE.test(s);
 /**
  * "x2" / "2x" / "x 3" / "lot" / "bundle" / "pair". An X that ends a card name is not a count: "LV.X 122/130",
