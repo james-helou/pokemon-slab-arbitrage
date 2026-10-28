@@ -25,6 +25,8 @@ export interface BotOptions {
   guildId: string;
   channelIds: Record<Route, string>;
   reportChannelId: string;
+  /** Auction watchlist channel; may be the same id as the alert channel. */
+  watchChannelId: string;
   db: Db;
   ebayUsedToday: () => Promise<number>;
   log: Log;
@@ -34,6 +36,8 @@ export interface Bot {
   send(route: Route, payload: AlertPayload): Promise<string>;
   /** Plain message + one text attachment (weekly report). Content is truncated to Discord's 2000-char limit. */
   sendReport(content: string, file: { name: string; body: string }): Promise<string>;
+  /** Watchlist alert to the watch channel. */
+  sendWatch(payload: AlertPayload): Promise<string>;
   stop(): Promise<void>;
 }
 
@@ -84,6 +88,12 @@ export async function startBot(o: BotOptions): Promise<Bot> {
         content: content.slice(0, 2000),
         files: [{ attachment: Buffer.from(file.body, 'utf8'), name: file.name }],
       });
+      return msg.id;
+    },
+    async sendWatch(payload) {
+      const channel = await client.channels.fetch(o.watchChannelId);
+      if (!channel || !channel.isSendable()) throw new Error('Discord watch channel is not sendable');
+      const msg = await channel.send(payload as MessageCreateOptions);
       return msg.id;
     },
     async stop() {

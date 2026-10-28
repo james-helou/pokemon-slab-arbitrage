@@ -18,7 +18,7 @@ export const PASS_REASONS = ['condition', 'fake_suspicion', 'price', 'not_intere
 
 const truncate = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 
-function safeEbayUrl(raw: string): string | null {
+export function safeEbayUrl(raw: string): string | null {
   try {
     const u = new URL(raw);
     const ok = u.protocol === 'https:' && ['ebay.com', 'ebay.ca'].some((d) => u.hostname === d || u.hostname.endsWith(`.${d}`));
@@ -28,8 +28,8 @@ function safeEbayUrl(raw: string): string | null {
   }
 }
 
-const usd = (n: number) => `$${n.toFixed(2)}`;
-const cadSuffix = (n: number, rate: number | null | undefined) => (rate ? ` (≈ C$${(n * rate).toFixed(2)})` : '');
+export const usd = (n: number) => `$${n.toFixed(2)}`;
+export const cadSuffix = (n: number, rate: number | null | undefined) => (rate ? ` (≈ C$${(n * rate).toFixed(2)})` : '');
 
 const UNAVAILABLE: Record<SoldCheckRunStatus, string> = {
   ok: 'no median',

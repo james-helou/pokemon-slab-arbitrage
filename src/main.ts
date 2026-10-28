@@ -76,6 +76,7 @@ async function main() {
     token: cfg.DISCORD_TOKEN, appId: cfg.DISCORD_APP_ID, guildId: cfg.DISCORD_GUILD_ID,
     channelIds: { alerts: cfg.DISCORD_ALERT_CHANNEL_ID, over_budget: cfg.DISCORD_OVERBUDGET_CHANNEL_ID },
     reportChannelId: cfg.DISCORD_REPORT_CHANNEL_ID ?? cfg.DISCORD_OVERBUDGET_CHANNEL_ID,
+    watchChannelId: cfg.DISCORD_WATCH_CHANNEL_ID ?? cfg.DISCORD_ALERT_CHANNEL_ID,
     db, ebayUsedToday: () => budget.usedToday(), log,
   });
 

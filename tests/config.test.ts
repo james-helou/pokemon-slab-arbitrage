@@ -37,6 +37,11 @@ describe('loadConfig', () => {
     expect(loadConfig({ ...ENV, DISCORD_REPORT_CHANNEL_ID: '' }).DISCORD_REPORT_CHANNEL_ID).toBeUndefined();
     expect(loadConfig({ ...ENV, DISCORD_REPORT_CHANNEL_ID: '5' }).DISCORD_REPORT_CHANNEL_ID).toBe('5');
   });
+  it('treats DISCORD_WATCH_CHANNEL_ID as optional, blank as unset', () => {
+    expect(loadConfig(ENV).DISCORD_WATCH_CHANNEL_ID).toBeUndefined();
+    expect(loadConfig({ ...ENV, DISCORD_WATCH_CHANNEL_ID: '' }).DISCORD_WATCH_CHANNEL_ID).toBeUndefined();
+    expect(loadConfig({ ...ENV, DISCORD_WATCH_CHANNEL_ID: '6' }).DISCORD_WATCH_CHANNEL_ID).toBe('6');
+  });
   it('defaults COMPS_SOURCE to fixture with no PokeTrace key', () => {
     const c = loadConfig(ENV);
     expect(c.COMPS_SOURCE).toBe('fixture');

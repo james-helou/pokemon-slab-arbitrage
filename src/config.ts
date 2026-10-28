@@ -17,6 +17,8 @@ const schema = z.object({
   DISCORD_OVERBUDGET_CHANNEL_ID: z.string().min(1),
   /** Weekly report channel; falls back to the over-budget channel when unset. */
   DISCORD_REPORT_CHANNEL_ID: z.string().optional().transform((v) => v || undefined),
+  /** Auction watchlist channel; falls back to the alert channel when unset. */
+  DISCORD_WATCH_CHANNEL_ID: z.string().optional().transform((v) => v || undefined),
   COMPS_FIXTURE_PATH: z.string().default('data/comps-fixture.json'),
   /** fixture = sample comps (dev, SAMPLE COMPS banner); poketrace = PokeTrace aggregates + own DB comps; ppt = PokemonPriceTracker free tier + own DB comps. */
   COMPS_SOURCE: z.preprocess(blankToUndefined, z.enum(['fixture', 'poketrace', 'ppt']).default('fixture')),
