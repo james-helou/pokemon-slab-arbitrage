@@ -1,6 +1,7 @@
 import type { Budget } from './budget.js';
 
 const API = 'https://api.ebay.com';
+const PAGE_SIZE = 200;
 
 export interface Money {
   value: string;
@@ -34,6 +35,8 @@ export interface EbayClient {
   searchNewGraded(): Promise<EbayItemSummary[]>;
   /** Auctions ending within windowMinutes, soonest first. No price floor: it would apply to the current bid. */
   searchEndingAuctions(windowMinutes: number): Promise<EbayItemSummary[]>;
+  /** Live auctions with a current bid >= minBid ending within windowHours, ending soonest first, up to maxPages x 200. */
+  searchLiveAuctions(o: { windowHours: number; minBid: number; maxPages: number }): Promise<EbayItemSummary[]>;
   getItem(itemId: string): Promise<EbayItem | null>;
 }
 
@@ -124,6 +127,26 @@ export function createEbayClient(o: EbayClientOptions): EbayClient {
       if (!res.ok) throw new Error(`eBay auction search ${res.status}: ${await res.text()}`);
       const body = (await res.json()) as { itemSummaries?: EbayItemSummary[] };
       return body.itemSummaries ?? [];
+    },
+    async searchLiveAuctions({ windowHours, minBid, maxPages }) {
+      const endBy = new Date(o.now().getTime() + windowHours * 3_600_000).toISOString();
+      const out: EbayItemSummary[] = [];
+      for (let page = 0; page < maxPages; page++) {
+        const params = new URLSearchParams({
+          q: o.query,
+          category_ids: o.categoryIds,
+          filter: `buyingOptions:{AUCTION},conditionIds:{2750},price:[${minBid}..],priceCurrency:USD,itemEndDate:[..${endBy}]${o.buyerLocation ? `,deliveryCountry:${o.buyerLocation.country}` : ''}`,
+          sort: 'endingSoonest',
+          limit: String(PAGE_SIZE),
+          offset: String(page * PAGE_SIZE),
+        });
+        const res = await get(`/buy/browse/v1/item_summary/search?${params.toString()}`);
+        if (!res.ok) throw new Error(`eBay live auction search ${res.status}: ${await res.text()}`);
+        const items = ((await res.json()) as { itemSummaries?: EbayItemSummary[] }).itemSummaries ?? [];
+        out.push(...items);
+        if (items.length < PAGE_SIZE) break;
+      }
+      return out;
     },
     async getItem(itemId) {
       const res = await get(`/buy/browse/v1/item/${encodeURIComponent(itemId)}`);

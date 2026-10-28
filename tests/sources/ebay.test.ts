@@ -126,6 +126,63 @@ describe('eBay client', () => {
     expect(n).toBe(1);
   });
 
+  describe('searchLiveAuctions', () => {
+    const page = (n: number) => ({
+      itemSummaries: Array.from({ length: n }, (_, i) => ({ ...SUMMARY, itemId: `v1|${i}|0` })),
+    });
+    /** Serves `sizes[i]` summaries for offset i*200; counts budget calls. */
+    function pagedFetch(sizes: number[], failAt?: number) {
+      const urls: string[] = [];
+      let budgetCalls = 0;
+      const budget: Budget = { limit: 5000, beforeCall: async () => { budgetCalls++; }, usedToday: async () => budgetCalls };
+      const fn = (async (url: string) => {
+        if (url.includes('/oauth2/token')) return new Response(JSON.stringify({ access_token: 'tok', expires_in: 7200 }));
+        urls.push(url);
+        const i = Number(new URL(url).searchParams.get('offset')) / 200;
+        if (i === failAt) return new Response('boom', { status: 500 });
+        return new Response(JSON.stringify(page(sizes[i] ?? 0)));
+      }) as unknown as typeof fetch;
+      return { fn, urls, budget, budgetCalls: () => budgetCalls };
+    }
+
+    it('filters live auctions by bid floor and end window, soonest first', async () => {
+      const f = pagedFetch([3]);
+      const out = await client(f.fn, f.budget, { country: 'CA' })
+        .searchLiveAuctions({ windowHours: 72, minBid: 300, maxPages: 3 });
+      expect(out).toHaveLength(3);
+      const u = new URL(f.urls[0]!);
+      expect(u.searchParams.get('filter')).toBe(
+        'buyingOptions:{AUCTION},conditionIds:{2750},price:[300..],priceCurrency:USD,itemEndDate:[..2026-10-06T12:00:00.000Z],deliveryCountry:CA',
+      );
+      expect(u.searchParams.get('sort')).toBe('endingSoonest');
+      expect(u.searchParams.get('limit')).toBe('200');
+      expect(u.searchParams.get('offset')).toBe('0');
+      expect(u.searchParams.get('q')).toBe('pokemon');
+      expect(u.searchParams.get('category_ids')).toBe('183454');
+    });
+
+    it('pages by offset and stops on a short page', async () => {
+      const f = pagedFetch([200, 200, 50, 200]);
+      const out = await client(f.fn, f.budget).searchLiveAuctions({ windowHours: 72, minBid: 300, maxPages: 10 });
+      expect(out).toHaveLength(450);
+      expect(f.urls.map((u) => new URL(u).searchParams.get('offset'))).toEqual(['0', '200', '400']);
+      expect(f.budgetCalls()).toBe(3);
+    });
+
+    it('stops at maxPages', async () => {
+      const f = pagedFetch([200, 200, 200, 200]);
+      const out = await client(f.fn, f.budget).searchLiveAuctions({ windowHours: 72, minBid: 300, maxPages: 2 });
+      expect(out).toHaveLength(400);
+      expect(f.urls).toHaveLength(2);
+    });
+
+    it('throws on a non-OK page', async () => {
+      const f = pagedFetch([200, 200], 1);
+      await expect(client(f.fn, f.budget).searchLiveAuctions({ windowHours: 72, minBid: 300, maxPages: 3 }))
+        .rejects.toThrow(/eBay live auction search 500/);
+    });
+  });
+
   it('returns an empty array when no summaries', async () => {
     expect(await client(fakeEbayFetch({ search: {} }).fn).searchNewGraded()).toEqual([]);
   });

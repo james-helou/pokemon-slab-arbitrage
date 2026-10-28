@@ -37,6 +37,7 @@ async function setup(opts: { used?: number; results?: EbayItemSummary[]; rates?:
     ebay: {
       searchNewGraded: async () => { calls.search++; return opts.results ?? [caSummary({ buyingOptions: bo, price: { value: opts.ask ?? '630.00', currency: 'CAD' } })]; },
       searchEndingAuctions: async () => [],
+      searchLiveAuctions: async () => [],
       getItem: async (id) => {
         calls.getItem++;
         return { ...ITEM, ...caSummary({ itemId: id, buyingOptions: bo, price: { value: opts.ask ?? '630.00', currency: 'CAD' } }) };
