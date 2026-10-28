@@ -176,3 +176,17 @@ describe('rawPromiseMultipliers setting', () => {
     expect((await loadSettings(db)).offerMode).toBe(DEFAULT_SETTINGS.offerMode);
   });
 });
+
+describe('watch settings', () => {
+  it('has watchlist defaults and clamps them', async () => {
+    expect(DEFAULT_SETTINGS).toMatchObject({
+      stealMode: false, watchMode: true, watchScanMinutes: 15, watchWindowHours: 72, watchMaxPages: 3, watchMinBid: 300,
+      watchMinBids: 2, watchMinGapPct: 0.25, watchMinGapUsd: 200, watchRealertPct: 0.25, watchFinalCheckMinutes: 10,
+    });
+    const db = await createTestDb();
+    await setSetting(db, 'watchScanMinutes', 1);
+    await setSetting(db, 'watchMaxPages', 50);
+    await setSetting(db, 'watchMinGapPct', 0);
+    expect(await loadSettings(db)).toMatchObject({ watchScanMinutes: 5, watchMaxPages: 10, watchMinGapPct: 0.05 });
+  });
+});

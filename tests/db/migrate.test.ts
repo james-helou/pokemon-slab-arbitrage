@@ -144,4 +144,16 @@ describe('migrate', () => {
     await expect(ins('offer', 350)).resolves.toBeDefined();
     await expect(ins('bin', null)).resolves.toBeDefined();
   });
+  it('migration 019 adds watch_auctions and the auction_result comp kind', async () => {
+    const db = await createTestDb();
+    await db.query(`insert into cards (id, name, number, set_id, set_name, set_printed_total) values ('c1','Card','1','s','Set',10)`);
+    await expect(db.query(
+      `insert into comps (card_id, grader, grade, price, sold_at, kind, source_ref)
+       values ('c1','PSA',10,100,now(),'auction_result','ebay_auction:x')`,
+    )).resolves.toBeDefined();
+    await expect(db.query(
+      `insert into comps (card_id, grader, grade, price, sold_at, kind, source_ref) values ('c1','PSA',10,100,now(),'bogus','y')`,
+    )).rejects.toThrow();
+    await expect(db.query('select * from watch_auctions')).resolves.toEqual({ rows: [] });
+  });
 });

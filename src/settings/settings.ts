@@ -74,6 +74,27 @@ export interface Settings {
   caScan: boolean;
   /** The CA scan runs on main cycles where cycle % n === 0. */
   caScanEveryNCycles: number;
+  /** Steal alerts (US BIN + CA scans, old auction scan, outcome tracking) on. Off since the watchlist pivot. */
+  stealMode: boolean;
+  /** Auction watchlist scan on. */
+  watchMode: boolean;
+  watchScanMinutes: number;
+  /** Live auctions ending within this many hours are watched. */
+  watchWindowHours: number;
+  /** Search pages (200 items each) per watch scan. */
+  watchMaxPages: number;
+  /** Minimum current bid (USD) for an auction to be watched. */
+  watchMinBid: number;
+  /** Minimum bid count before an auction counts (eBay has no distinct-bidder count; 2 = someone was outbid). */
+  watchMinBids: number;
+  /** Alert when the bid is at least this fraction above market value... */
+  watchMinGapPct: number;
+  /** ...and at least this many USD above it. */
+  watchMinGapUsd: number;
+  /** Re-alert once when the bid climbs this fraction above the alerted bid. */
+  watchRealertPct: number;
+  /** Refresh the bid by getItem in the last this-many minutes of a watched auction. */
+  watchFinalCheckMinutes: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -119,6 +140,17 @@ export const DEFAULT_SETTINGS: Settings = {
   auctionSpendsCredits: false,
   caScan: true,
   caScanEveryNCycles: 3,
+  stealMode: false,
+  watchMode: true,
+  watchScanMinutes: 15,
+  watchWindowHours: 72,
+  watchMaxPages: 3,
+  watchMinBid: 300,
+  watchMinBids: 2,
+  watchMinGapPct: 0.25,
+  watchMinGapUsd: 200,
+  watchRealertPct: 0.25,
+  watchFinalCheckMinutes: 10,
 };
 
 /** Lower bounds for DB-loaded values that would otherwise hammer eBay or Discord. */
@@ -144,6 +176,15 @@ const MINIMUMS: Partial<Record<keyof Settings, number>> = {
   auctionWindowMinutes: 15,
   auctionAlertPct: 0.3,
   caScanEveryNCycles: 1,
+  watchScanMinutes: 5,
+  watchWindowHours: 1,
+  watchMaxPages: 1,
+  watchMinBid: 50,
+  watchMinBids: 1,
+  watchMinGapPct: 0.05,
+  watchMinGapUsd: 0,
+  watchRealertPct: 0.05,
+  watchFinalCheckMinutes: 3,
 };
 
 /** Upper bounds for DB-loaded values that would otherwise make the sold check scrape harder or trust too little. */
@@ -162,6 +203,10 @@ const MAXIMUMS: Partial<Record<keyof Settings, number>> = {
   auctionWindowMinutes: 180,
   auctionAlertPct: 1,
   caScanEveryNCycles: 20,
+  watchScanMinutes: 120,
+  watchWindowHours: 240,
+  watchMaxPages: 10,
+  watchFinalCheckMinutes: 60,
 };
 
 /** Non-object -> defaults; a non-positive/non-numeric entry -> that key's default. */

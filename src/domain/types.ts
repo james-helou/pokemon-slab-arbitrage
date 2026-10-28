@@ -1,6 +1,6 @@
 export type Grader = 'PSA' | 'CGC' | 'BGS' | 'SGC' | 'TAG';
 
-export type CompKind = 'paid_source' | 'disappearing_bin' | 'browser_agent';
+export type CompKind = 'paid_source' | 'disappearing_bin' | 'browser_agent' | 'auction_result';
 /** Why a listing's gone_at was set. See migrations/005_disappearing_bin.sql for the exact meaning of each. */
 export type GoneReason = 'out_of_stock' | 'not_found' | 'window_miss';
 
