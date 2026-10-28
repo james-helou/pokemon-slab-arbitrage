@@ -24,6 +24,9 @@ import { loadSettings } from './settings/settings.js';
 import { buildSoldCheckDep } from './soldcheck/sold-check-wiring.js';
 import { createBudget } from './sources/ebay/budget.js';
 import { createEbayClient } from './sources/ebay/ebay-client.js';
+import { buildWatchReaders } from './watch/market-value.js';
+import { whenStealMode } from './watch/steal-mode.js';
+import { watchScan } from './watch/watch-scan.js';
 
 const WEEKLY_CHECK_MS = 3_600_000;
 
@@ -81,15 +84,25 @@ async function main() {
   });
 
   // Every job below re-reads settings each run and returns early while paused (kill switch).
+  // Steal jobs (BIN + CA scans, old auction scan, outcomes) also do nothing while stealMode is off (re-read each run).
+  const steal = <T>(job: () => Promise<T>) => whenStealMode(() => loadSettings(db), job);
+  const stealLogged = new Map<string, boolean>();
+  const logStealSkip = (job: string, ran: boolean) => {
+    if (stealLogged.get(job) !== ran && !ran) log('info', `${job} skipped`, { status: 'steal_mode_off' });
+    stealLogged.set(job, ran);
+  };
   let cycle = 0;
   const stopScan = every(
     async () => (await loadSettings(db)).scanIntervalSeconds * 1000,
     async () => {
-      const c = cycle++;
-      const s = await scanCycle({ db, ebay, budget, valuate, rawPrice, now, log, ...(soldCheck ? { soldCheck } : {}) }, c);
-      log('info', 'scan cycle', { ...s });
-      const settings = await loadSettings(db);
-      if (caScan && settings.caScan && c % settings.caScanEveryNCycles === 0) log('info', 'ca scan', { ...(await caScan()) });
+      const r = await steal(async () => {
+        const c = cycle++;
+        const s = await scanCycle({ db, ebay, budget, valuate, rawPrice, now, log, ...(soldCheck ? { soldCheck } : {}) }, c);
+        log('info', 'scan cycle', { ...s });
+        const settings = await loadSettings(db);
+        if (caScan && settings.caScan && c % settings.caScanEveryNCycles === 0) log('info', 'ca scan', { ...(await caScan()) });
+      });
+      logStealSkip('scan cycle', r.ran);
     },
     log,
     'scan',
@@ -98,7 +111,10 @@ async function main() {
   const stopAuction = every(
     async () => (await loadSettings(db)).auctionScanMinutes * 60_000,
     async () => {
-      const r = await auctionScan({ db, ebay, budget, valuate, rawPrice, now, log, ...(soldCheck ? { soldCheck } : {}) });
+      const g = await steal(() => auctionScan({ db, ebay, budget, valuate, rawPrice, now, log, ...(soldCheck ? { soldCheck } : {}) }));
+      logStealSkip('auction scan', g.ran);
+      if (!g.ran) return;
+      const r = g.result;
       if (r.seen) log('info', 'auction scan', { ...r });
       // Log a non-ok status (paused/throttled/disabled) once per change, not every interval.
       if (r.status !== lastAuctionStatus) {
@@ -108,6 +124,23 @@ async function main() {
     },
     log,
     'auction-scan',
+  );
+  let lastWatchStatus = 'ok';
+  const stopWatch = every(
+    async () => (await loadSettings(db)).watchScanMinutes * 60_000,
+    async () => {
+      const settings = await loadSettings(db);
+      const readers = buildWatchReaders({ db, now, minSales: settings.minCompCount, aggregate: oracle.aggregate });
+      const r = await watchScan({ db, ebay, budget, readers, send: bot.sendWatch, now, log, ...(usdCad ? { usdCad } : {}) });
+      if (r.seen || r.finalized || r.errors) log('info', 'watch scan', { ...r });
+      // Log a non-ok status (paused/throttled/disabled) once per change, not every interval.
+      if (r.status !== lastWatchStatus) {
+        if (r.status !== 'ok') log('info', 'watch scan skipped', { status: r.status });
+        lastWatchStatus = r.status;
+      }
+    },
+    log,
+    'watch-scan',
   );
   const stopDeliver = every(
     async () => (await loadSettings(db)).deliveryIntervalSeconds * 1000,
@@ -130,8 +163,9 @@ async function main() {
   const stopOutcomes = every(
     async () => (await loadSettings(db)).outcomeIntervalMinutes * 60_000,
     async () => {
-      const r = await runOutcomes({ db, ebay, budget, valuate, now, log });
-      if (r.due) log('info', 'outcomes', { ...r });
+      const g = await steal(() => runOutcomes({ db, ebay, budget, valuate, now, log }));
+      logStealSkip('outcomes', g.ran);
+      if (g.ran && g.result.due) log('info', 'outcomes', { ...g.result });
     },
     log,
     'outcomes',
@@ -174,7 +208,7 @@ async function main() {
     let code = 0;
     try {
       // Let any in-flight job finish (bounded) before closing the bot and DB under it.
-      await Promise.all([stopScan(), stopAuction(), stopDeliver(), stopSweep(), stopOutcomes(), stopWeekly()]);
+      await Promise.all([stopScan(), stopAuction(), stopWatch(), stopDeliver(), stopSweep(), stopOutcomes(), stopWeekly()]);
       await bot.stop();
       await http?.close();
       await db.end();

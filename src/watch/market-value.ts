@@ -53,3 +53,13 @@ export function ownSalesReader(db: Db, now: () => Date, minSales: number): Sourc
     return { name: 'own_sales', value: round2(median / 100), saleCount: rows.length, asOf };
   };
 }
+
+/** Watch readers: PPT (when an aggregate source is wired) and our own sales. Built per run so minSales is current. */
+export function buildWatchReaders(o: {
+  db: Db; now: () => Date; minSales: number; aggregate?: AggregatePriceSource | undefined;
+}): SourceReader[] {
+  return [
+    ...(o.aggregate ? [pptReader(o.aggregate, o.minSales)] : []),
+    ownSalesReader(o.db, o.now, o.minSales),
+  ];
+}
