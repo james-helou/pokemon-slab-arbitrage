@@ -53,7 +53,16 @@ function dealMode(l: Listing, settings: Settings): DealMode {
   return settings.offerMode && l.buyingOptions?.includes('BEST_OFFER') ? 'bin_offer' : 'bin';
 }
 
-function gate(m: Match, settings: Settings): EvaluateOutcome | null {
+/** Catalog lookups the matcher uses (number + total, or number within a set). */
+export function catalogLookup(db: Db): { lookup: CandidateLookup; sets: SetLister } {
+  return {
+    lookup: (n, t, set) => (set ? findCandidatesInSet(db, set, n) : findCandidates(db, n, t)),
+    sets: () => listSets(db),
+  };
+}
+
+/** Grader enabled, no special grade label, confident enough. null = the match may be acted on. */
+export function gate(m: Match, settings: Settings): EvaluateOutcome | null {
   if (!settings.enabledGraders.includes(m.grader)) return { status: 'grader_disabled', reasons: [m.grader] };
   if (m.gradeLabel) return { status: 'unsupported_label', reasons: [m.gradeLabel] };
   if (m.confidence < settings.minMatchConfidence) return { status: 'rejected', reasons: ['low_match_confidence'] };
@@ -71,8 +80,7 @@ export async function evaluateListing(
   channels: Channel[],
 ): Promise<EvaluateOutcome> {
   const { db } = deps;
-  const lookup: CandidateLookup = (n, t, set) => (set ? findCandidatesInSet(db, set, n) : findCandidates(db, n, t));
-  const sets: SetLister = () => listSets(db);
+  const { lookup, sets } = catalogLookup(db);
 
   const first = await matchListing({ title: listing.title, aspects: listing.aspects, itemCountry: itemCountry(listing) }, lookup, sets);
   await insertMatch(db, listing, first, 'title');
