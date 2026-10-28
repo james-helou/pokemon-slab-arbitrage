@@ -5,22 +5,32 @@ import type { AggregatePriceSource } from '../oracle/aggregate-source.js';
 import { round2 } from '../scoring/fees.js';
 
 export interface SourceValue { name: string; value: number; saleCount: number; asOf: Date }
-export type SourceReader = (key: ValuationKey) => Promise<SourceValue | null>;
+/** null = the source has no usable value; 'deferred' = it could not try this time (budget, outage), so unknown. */
+export type SourceReader = (key: ValuationKey) => Promise<SourceValue | null | 'deferred'>;
 export interface MarketValue { value: number; sources: SourceValue[] }
 
 const OWN_SALES_WINDOW_DAYS = 90;
 
-/** Highest usable source value; null when no source has one. A reader that throws is logged and skipped. */
-export async function marketValue(key: ValuationKey, readers: SourceReader[], log: Log): Promise<MarketValue | null> {
+/**
+ * Highest usable source value; null when no source has one. 'deferred' when any reader could not try: the value is a
+ * max, so a missing guide could only raise it, and the caller must not decide on the rest. A reader that throws is
+ * logged and skipped.
+ */
+export async function marketValue(
+  key: ValuationKey, readers: SourceReader[], log: Log,
+): Promise<MarketValue | null | 'deferred'> {
   const sources: SourceValue[] = [];
+  let deferred = false;
   for (const read of readers) {
     try {
       const v = await read(key);
-      if (v && Number.isFinite(v.value) && v.value > 0) sources.push(v);
+      if (v === 'deferred') deferred = true;
+      else if (v && Number.isFinite(v.value) && v.value > 0) sources.push(v);
     } catch (err) {
       log('warn', 'market value source failed', { ...key, err: err instanceof Error ? err.message : String(err) });
     }
   }
+  if (deferred) return 'deferred';
   if (sources.length === 0) return null;
   return { value: Math.max(...sources.map((s) => s.value)), sources };
 }
@@ -28,7 +38,9 @@ export async function marketValue(key: ValuationKey, readers: SourceReader[], lo
 /** PPT, undiscounted (no Best Offer discount: for "the bid beats every guide" the higher number is the safe one). */
 export function pptReader(aggregate: AggregatePriceSource, minSales: number): SourceReader {
   return async (key) => {
-    const a = await aggregate.fetchAggregate(key);
+    let deferred = false;
+    const a = await aggregate.fetchAggregate(key, { onDeferred: () => { deferred = true; } });
+    if (!a && deferred) return 'deferred';
     if (!a || a.saleCount < minSales) return null;
     return { name: a.sourceName, value: a.value, saleCount: a.saleCount, asOf: a.asOf };
   };

@@ -37,6 +37,8 @@ export interface WatchScanSummary {
   matched: number;
   alerts: number;
   realerts: number;
+  /** Auctions left undecided because a value source could not try; retried next pass. */
+  deferred: number;
   finalized: number;
   errors: number;
 }
@@ -51,7 +53,7 @@ const errText = (err: unknown) => (err instanceof Error ? err.message : String(e
  */
 export async function watchScan(deps: WatchScanDeps): Promise<WatchScanSummary> {
   const summary: WatchScanSummary = {
-    status: 'ok', seen: 0, candidates: 0, matched: 0, alerts: 0, realerts: 0, finalized: 0, errors: 0,
+    status: 'ok', seen: 0, candidates: 0, matched: 0, alerts: 0, realerts: 0, deferred: 0, finalized: 0, errors: 0,
   };
   const { db, log } = deps;
   const settings = await loadSettings(db);
@@ -132,6 +134,11 @@ async function watchOne(
 
   const key: ValuationKey = { cardId: row.cardId, grader: row.grader, grade: row.grade };
   const mv = await marketValue(key, deps.readers, deps.log);
+  if (mv === 'deferred') {
+    // A guide could not be read (credits, outage): no decision on the rest, the next pass retries.
+    summary.deferred++;
+    return;
+  }
   const v = decideWatch(
     { bid: row.currentBid, bidCount: row.bidCount, value: mv?.value ?? null, alertedBid: row.alertedBid, realerted },
     settings,

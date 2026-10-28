@@ -522,3 +522,51 @@ describe('pptAggregateSource variant-aware id', () => {
     expect((await db.query('select 1 from vendor_card_cache where body is null')).rows).toHaveLength(1);
   });
 });
+
+describe('pptAggregateSource onDeferred (could not try vs no data)', () => {
+  async function run(s: Awaited<ReturnType<typeof setup>>, key = KEY) {
+    let deferred = 0;
+    const a = await s.src.fetchAggregate(key, { onDeferred: () => { deferred++; } });
+    return { a, deferred };
+  }
+
+  it('is not called for a value or for definitive no-data (no id, empty data, 404, cached negative)', async () => {
+    expect(await run(await setup())).toMatchObject({ deferred: 0 });
+    expect(await run(await setup({ ids: [] }))).toEqual({ a: null, deferred: 0 });
+    const empty = await setup({ body: { data: [] } });
+    expect(await run(empty)).toEqual({ a: null, deferred: 0 });
+    expect(await run(empty)).toEqual({ a: null, deferred: 0 });
+    expect(await run(await setup({ err: new PptHttpError('ppt /cards: status 404', 404) }))).toEqual({ a: null, deferred: 0 });
+    // A grade PPT has no price for, from a positive cache row.
+    const s = await setup();
+    await run(s);
+    expect(await run(s, { ...KEY, grade: 8 })).toEqual({ a: null, deferred: 0 });
+  });
+
+  it('is called when the source could not try: budget, pacing, breaker, tcgdex error, 5xx, failed marker, auth latch', async () => {
+    expect(await run(await setup({ cap: 1 }))).toEqual({ a: null, deferred: 1 });
+    expect(await run(await setup({ cap: 90, burst: 0, now: () => new Date('2026-10-10T00:00:00Z') }))).toEqual({ a: null, deferred: 1 });
+    expect(await run(await setup({ open: true }))).toEqual({ a: null, deferred: 1 });
+    expect(await run(await setup({ tcgdex: () => new Response('x', { status: 500 }) }))).toEqual({ a: null, deferred: 1 });
+    const failed = await setup({ err: new PptHttpError('ppt /cards: status 500', 500) });
+    expect(await run(failed)).toEqual({ a: null, deferred: 1 });
+    expect(await run(failed)).toEqual({ a: null, deferred: 1 }); // the 1 hour failed marker
+    expect(await run(await setup({ err: new PptUnavailableError() }))).toEqual({ a: null, deferred: 1 });
+    const auth = await setup({ err: new PptHttpError('ppt /cards: status 401', 401) });
+    expect(await run(auth)).toEqual({ a: null, deferred: 1 });
+    expect(await run(auth, { ...KEY, cardId: 'b-2' })).toEqual({ a: null, deferred: 1 });
+  });
+
+  it('makes no TCGdex request when credits are not available or the breaker is open', async () => {
+    for (const s of [
+      await setup({ cap: 1 }),
+      await setup({ cap: 90, burst: 0, now: () => new Date('2026-10-10T00:00:00Z') }),
+      await setup({ open: true }),
+    ]) {
+      await s.src.fetchAggregate(KEY);
+      expect(s.tcgdexCalls).toEqual([]);
+      expect(s.calls).toEqual([]);
+      expect(await used(s.db)).toHaveLength(0);
+    }
+  });
+});

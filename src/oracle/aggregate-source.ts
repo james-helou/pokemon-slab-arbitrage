@@ -20,6 +20,13 @@ export interface AggregateFetchOptions {
    * spend anything. Sources without a budget ignore it.
    */
   spend?: boolean;
+  /**
+   * Called (before the source returns null) when it could not try: a metered budget or pacing refusal, an open breaker,
+   * an id-lookup or vendor outage, a short-lived failure marker. Not called for definitive no-data (no id for the card,
+   * no usable price, a cached negative result). Lets a caller that must not mistake "unknown" for "none" retry later.
+   * Sources without such states ignore it.
+   */
+  onDeferred?: () => void;
 }
 
 /** A vendor that returns pre-aggregated sold prices for a graded card instead of individual sales. */

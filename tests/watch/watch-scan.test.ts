@@ -22,7 +22,7 @@ function auction(id: string, bid: number, bids: number, over: Partial<EbayItemSu
   };
 }
 
-async function setup(opts: { used?: number; value?: number | null } = {}) {
+async function setup(opts: { used?: number; value?: number | null | 'deferred' } = {}) {
   const db = await createTestDb();
   await seedCards(db);
   const state = {
@@ -37,7 +37,7 @@ async function setup(opts: { used?: number; value?: number | null } = {}) {
   const budget: Budget = { limit: 5000, beforeCall: async () => {}, usedToday: async () => opts.used ?? 0 };
   const value = opts.value === undefined ? 2000 : opts.value;
   const reader: SourceReader = async () =>
-    value === null ? null : { name: 'ppt', value, saleCount: 12, asOf: T0 };
+    value === null || value === 'deferred' ? value : { name: 'ppt', value, saleCount: 12, asOf: T0 };
   const deps: WatchScanDeps = {
     db, budget, readers: [reader], log: silentLog, now: () => state.now,
     ebay: {
@@ -67,7 +67,7 @@ describe('watchScan', () => {
   it('searches with the watch settings and alerts once on a bid well above market value', async () => {
     const { db, deps, calls, sent } = await setup();
     const s = await watchScan(deps);
-    expect(s).toEqual({ status: 'ok', seen: 2, candidates: 2, matched: 2, alerts: 1, realerts: 0, finalized: 0, errors: 0 });
+    expect(s).toEqual({ status: 'ok', seen: 2, candidates: 2, matched: 2, alerts: 1, realerts: 0, deferred: 0, finalized: 0, errors: 0 });
     expect(calls.searchArgs).toEqual([{ windowHours: 72, minBid: 300, maxPages: 3 }]);
     expect(sent).toHaveLength(1);
     expect(sent[0]!.embeds[0]!.title).toBe('Bid above market: Charizard ex PSA 10');
@@ -148,6 +148,15 @@ describe('watchScan', () => {
     const s = await watchScan(deps);
     expect(s).toMatchObject({ matched: 2, alerts: 0 });
     expect(sent).toEqual([]);
+  });
+
+  it('decides nothing while a source is deferred, and alerts once it has a value', async () => {
+    const { deps, sent } = await setup({ value: 'deferred' });
+    const s = await watchScan(deps);
+    expect(s).toMatchObject({ matched: 2, alerts: 0, deferred: 2 });
+    expect(sent).toEqual([]);
+    deps.readers = [async () => ({ name: 'ppt', value: 2000, saleCount: 12, asOf: T0 })];
+    expect((await watchScan(deps)).alerts).toBe(1);
   });
 
   it('does not mark the auction alerted when the send fails, and alerts on the next pass', async () => {

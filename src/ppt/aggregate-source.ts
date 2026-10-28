@@ -213,6 +213,14 @@ export function pacedCredits(dailyCap: number, burst: number, now: Date): number
   return Math.min(cap, Math.max(0, burst) + Math.floor(cap * elapsed));
 }
 
+/** Credits reserved so far on a UTC day (0 with no row). */
+async function pptCreditsUsed(db: Db, day: string): Promise<number> {
+  const { rows } = await db.query<{ credits: number | string }>(
+    'select credits from vendor_credits where provider = $1 and day = $2::date', [PROVIDER, day],
+  );
+  return rows[0] ? Number(rows[0].credits) : 0;
+}
+
 export interface PptAggregateDeps {
   db: Db;
   client: PptClient;
@@ -234,6 +242,8 @@ export interface PptAggregateDeps {
  * grade for free (re-checked against the requested id); negative (body null: no/ambiguous tcgplayer id, empty data, 404,
  * wrong card) < 7 days returns null for free; a 'failed' marker (5xx, timeout, network, 429) holds for 1 hour so the
  * same card is not re-paid for. `spend: false` serves a fresh positive cache row or null and touches nothing else.
+ * `onDeferred` is called whenever the null means "could not try" (budget, pacing, breaker, TCGdex or PPT outage, the
+ * failed marker, the auth latch) rather than "no data". The breaker and credits are checked before the TCGdex lookup.
  * Never throws: any failure logs one key-free warn line and returns null so the comps
  * path runs.
  */
@@ -252,6 +262,10 @@ export function pptAggregateSource(deps: PptAggregateDeps): AggregatePriceSource
   return {
     async fetchAggregate(key: ValuationKey & { gradeLabel?: Key['gradeLabel'] }, opts?: AggregateFetchOptions): Promise<AggregatePrice | null> {
       if (key.gradeLabel) return null;
+      const defer = (): null => {
+        opts?.onDeferred?.();
+        return null;
+      };
       try {
         const now = deps.now();
         const day = now.toISOString().slice(0, 10);
@@ -271,30 +285,21 @@ export function pptAggregateSource(deps: PptAggregateDeps): AggregatePriceSource
               ? parsePptCard(entry.response, key, { now, tcgplayerId: entry.tcgplayerId, fetchedAt })
               : null;
           }
-          if (entry === null && cached.kind === 'failed' && age < FAILED_TTL_MS) return null;
+          if (entry === null && cached.kind === 'failed' && age < FAILED_TTL_MS) return defer();
           if (entry === null && cached.kind !== 'failed' && age < NEGATIVE_TTL_MS) return null;
         }
         if (opts?.spend === false) return null;
-        if (authBlockedDay === day) return null;
+        if (authBlockedDay === day) return defer();
 
-        const tcgplayerId = await pptTcgplayerId(deps.fetch, key.cardId);
-        if (tcgplayerId === 'error') {
-          // Nothing cached: a TCGdex outage must not poison the card for 7 days.
-          deps.log?.('warn', 'ppt lookup failed, using comps', { cardId: key.cardId });
-          return null;
-        }
-        if (tcgplayerId === null) {
-          await writeCache(key.cardId, now, null);
-          return null;
-        }
-
+        // Breaker and credits are checked before the TCGdex lookup, so a pass without credits makes no request at all.
+        // The real reservation below stays the atomic guard; this read only avoids the lookup.
         if (deps.client.isOpen()) {
           deps.log?.('warn', 'ppt unavailable (breaker open), using comps', { cardId: key.cardId });
-          return null;
+          return defer();
         }
         const dailyCap = await deps.dailyCredits();
         const paced = deps.burstCredits ? Math.min(dailyCap, pacedCredits(dailyCap, await deps.burstCredits(), now)) : dailyCap;
-        if (!(await reservePptCredits(deps.db, day, CALL_COST, paced))) {
+        const refused = () => {
           if (paced < dailyCap) {
             const hour = now.toISOString().slice(0, 13);
             if (pacedLoggedHour !== hour) {
@@ -305,8 +310,22 @@ export function pptAggregateSource(deps: PptAggregateDeps): AggregatePriceSource
             budgetLoggedDay = day;
             deps.log?.('warn', 'ppt daily credit budget exhausted', { day });
           }
+          return defer();
+        };
+        if ((await pptCreditsUsed(deps.db, day)) + CALL_COST > paced) return refused();
+
+        const tcgplayerId = await pptTcgplayerId(deps.fetch, key.cardId);
+        if (tcgplayerId === 'error') {
+          // Nothing cached: a TCGdex outage must not poison the card for 7 days.
+          deps.log?.('warn', 'ppt lookup failed, using comps', { cardId: key.cardId });
+          return defer();
+        }
+        if (tcgplayerId === null) {
+          await writeCache(key.cardId, now, null);
           return null;
         }
+
+        if (!(await reservePptCredits(deps.db, day, CALL_COST, paced))) return refused();
 
         let body: { data?: unknown };
         try {
@@ -322,7 +341,7 @@ export function pptAggregateSource(deps: PptAggregateDeps): AggregatePriceSource
           if (status === 401 || status === 403) {
             authBlockedDay = day;
             deps.log?.('error', 'ppt rejected the API key, pausing ppt until the next UTC day', { status });
-            return null;
+            return defer();
           }
           // No message: errors can carry request details. The comps path still runs.
           if (err instanceof PptUnavailableError) {
@@ -331,7 +350,7 @@ export function pptAggregateSource(deps: PptAggregateDeps): AggregatePriceSource
             deps.log?.('warn', 'ppt card fetch failed, using comps', { cardId: key.cardId, status });
             await writeCache(key.cardId, now, null, 'failed');
           }
-          return null;
+          return defer();
         }
         if (!identifiedCard(body, tcgplayerId)) {
           deps.log?.('warn', 'ppt response is not the requested card', { cardId: key.cardId });
@@ -343,7 +362,7 @@ export function pptAggregateSource(deps: PptAggregateDeps): AggregatePriceSource
       } catch {
         // No message: errors can carry request details. A throw would fail the valuation and burn eval attempts.
         deps.log?.('warn', 'ppt lookup failed, using comps', { cardId: key.cardId });
-        return null;
+        return defer();
       }
     },
   };

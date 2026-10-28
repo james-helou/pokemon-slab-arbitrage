@@ -24,6 +24,14 @@ describe('marketValue', () => {
     expect(await marketValue(KEY, [], vi.fn())).toBeNull();
   });
 
+  it('is deferred when a reader could not try and the others have no value', async () => {
+    expect(await marketValue(KEY, [async () => 'deferred', async () => null], vi.fn())).toBe('deferred');
+  });
+
+  it('is deferred when a reader could not try even if another has a value (the value must beat every guide)', async () => {
+    expect(await marketValue(KEY, [async () => sv('own_sales', 2000), async () => 'deferred'], vi.fn())).toBe('deferred');
+  });
+
   it('skips and logs a throwing reader', async () => {
     const log = vi.fn();
     const mv = await marketValue(KEY, [async () => { throw new Error('boom'); }, async () => sv('ppt', 900)], log);
@@ -44,6 +52,11 @@ describe('pptReader', () => {
   it('drops too few sales and a missing aggregate', async () => {
     expect(await pptReader(agg({ saleCount: 2 }), 3)(KEY)).toBeNull();
     expect(await pptReader({ fetchAggregate: async () => null }, 3)(KEY)).toBeNull();
+  });
+
+  it('is deferred when the source reports it could not try', async () => {
+    const deferring: AggregatePriceSource = { fetchAggregate: async (_k, o) => { o?.onDeferred?.(); return null; } };
+    expect(await pptReader(deferring, 3)(KEY)).toBe('deferred');
   });
 });
 
@@ -75,7 +88,7 @@ describe('ownSalesReader', () => {
 
   it('rounds the even-count median to cents', async () => {
     const db = await dbWith([comp(100, 1), comp(100.01, 2), comp(100.02, 3), comp(200, 4)]);
-    expect((await ownSalesReader(db, () => NOW, 3)(KEY))?.value).toBe(100.02);
+    expect(await ownSalesReader(db, () => NOW, 3)(KEY)).toMatchObject({ value: 100.02 });
   });
 
   it('is null under the minimum sale count', async () => {
