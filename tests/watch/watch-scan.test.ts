@@ -78,7 +78,7 @@ describe('watchScan', () => {
     expect(calls.searchArgs).toEqual([{ windowHours: 72, minBid: 300, maxPages: 3 }]);
     expect(sent).toHaveLength(1);
     expect(sent[0]!.embeds[0]!.title).toBe('Bid above market: Charizard ex PSA 10');
-    expect(JSON.stringify(sent[0])).toContain('C$4200.00');
+    expect(JSON.stringify(sent[0])).toContain('C$4,200.00');
     const r = await row(db, 'A1');
     expect(r).toMatchObject({ match_status: 'ok', card_id: 'sv03.5-199', grader: 'PSA' });
     expect(Number(r!.alerted_bid)).toBe(3000);

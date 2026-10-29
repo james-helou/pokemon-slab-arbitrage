@@ -186,7 +186,8 @@ const MINIMUMS: Partial<Record<keyof Settings, number>> = {
   watchWindowHours: 1,
   watchMaxPages: 1,
   watchMinBid: 50,
-  watchMinBids: 1,
+  // 2+ bids is a hard rule.
+  watchMinBids: 2,
   watchMinGapPct: 0.05,
   watchMinGapUsd: 0,
   watchRealertPct: 0.05,
@@ -213,7 +214,7 @@ const MAXIMUMS: Partial<Record<keyof Settings, number>> = {
   caScanEveryNCycles: 20,
   watchScanMinutes: 120,
   watchWindowHours: 240,
-  watchMaxPages: 10,
+  watchMaxPages: 5,
   watchFinalCheckMinutes: 60,
   watchGetItemDailyCap: 1000,
   watchGetItemsPerPass: 200,

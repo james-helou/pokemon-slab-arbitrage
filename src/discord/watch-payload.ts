@@ -1,7 +1,12 @@
 import type { APIEmbed } from 'discord.js';
 import type { Grader } from '../domain/types.js';
 import type { SourceValue } from '../watch/market-value.js';
-import { cadSuffix, safeEbayUrl, usd, type AlertPayload } from './alert-payload.js';
+import { safeEbayUrl, type AlertPayload } from './alert-payload.js';
+
+// Local formatters with thousands separators ($3,000.00); the steal alerts keep alert-payload's usd() unchanged.
+const money = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const usd = (n: number) => `$${money.format(n)}`;
+const cadSuffix = (n: number, rate: number | null | undefined) => (rate ? ` (≈ C$${money.format(n * rate)})` : '');
 
 export interface WatchAlert {
   title: string;

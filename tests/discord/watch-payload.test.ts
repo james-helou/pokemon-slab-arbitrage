@@ -28,12 +28,19 @@ describe('buildWatchPayload', () => {
     expect(e.image).toEqual({ url: 'https://i.ebayimg.com/x.jpg' });
     expect(e.description).toContain('Base #4');
     const f = fields(p);
-    expect(f['Current bid']).toBe('$3000.00 (5 bids)');
-    expect(f['Market value']).toBe('$2000.00\nppt $2000.00 (12 sales)\nown_sales $1850.00 (4 sales)');
-    expect(f['Gap']).toBe('+$1000.00 (+50%)');
+    expect(f['Current bid']).toBe('$3,000.00 (5 bids)');
+    expect(f['Market value']).toBe('$2,000.00\nppt $2,000.00 (12 sales)\nown_sales $1,850.00 (4 sales)');
+    expect(f['Gap']).toBe('+$1,000.00 (+50%)');
     expect(f['Ends']).toBe(`<t:${ENDS.getTime() / 1000}:R>`);
     expect(f['Link']).toBe('https://www.ebay.com/itm/123');
     expect(p.components).toEqual([]);
+  });
+
+  it('formats large and small amounts with thousands separators and cents', () => {
+    const f = fields(buildWatchPayload(alert({ bid: 1234567.5, value: 999.994, gapUsd: 0.5 }), { now: NOW }));
+    expect(f['Current bid']).toBe('$1,234,567.50 (5 bids)');
+    expect(f['Market value']!.split('\n')[0]).toBe('$999.99');
+    expect(f['Gap']).toBe('+$0.50 (+50%)');
   });
 
   it('uses the re-alert title', () => {
@@ -43,7 +50,7 @@ describe('buildWatchPayload', () => {
 
   it('adds CAD when a rate is known, none otherwise', () => {
     expect(fields(buildWatchPayload(alert(), { now: NOW, usdCad: 1.4 }))['Current bid'])
-      .toBe('$3000.00 (5 bids) (≈ C$4200.00)');
+      .toBe('$3,000.00 (5 bids) (≈ C$4,200.00)');
     expect(fields(buildWatchPayload(alert(), { now: NOW, usdCad: null }))['Current bid']).not.toContain('C$');
   });
 
@@ -56,7 +63,7 @@ describe('buildWatchPayload', () => {
 
   it('singular bid and a fractional grade', () => {
     const f = fields(buildWatchPayload(alert({ bidCount: 1, grade: 9.5, gapPct: 0.2549 }), { now: NOW }));
-    expect(f['Current bid']).toBe('$3000.00 (1 bid)');
-    expect(f['Gap']).toBe('+$1000.00 (+25%)');
+    expect(f['Current bid']).toBe('$3,000.00 (1 bid)');
+    expect(f['Gap']).toBe('+$1,000.00 (+25%)');
   });
 });

@@ -188,7 +188,14 @@ describe('watch settings', () => {
     await setSetting(db, 'watchScanMinutes', 1);
     await setSetting(db, 'watchMaxPages', 50);
     await setSetting(db, 'watchMinGapPct', 0);
-    expect(await loadSettings(db)).toMatchObject({ watchScanMinutes: 5, watchMaxPages: 10, watchMinGapPct: 0.05 });
+    expect(await loadSettings(db)).toMatchObject({ watchScanMinutes: 5, watchMaxPages: 5, watchMinGapPct: 0.05 });
+  });
+
+  it('keeps watchMinBids at 2+ and watchMaxPages at 5 or fewer', async () => {
+    const db = await createTestDb();
+    await setSetting(db, 'watchMinBids', 1);
+    await setSetting(db, 'watchMaxPages', 8);
+    expect(await loadSettings(db)).toMatchObject({ watchMinBids: 2, watchMaxPages: 5 });
   });
 
   it('clamps the watch getItem budget', async () => {
