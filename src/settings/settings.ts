@@ -95,6 +95,10 @@ export interface Settings {
   watchRealertPct: number;
   /** Refresh the bid by getItem in the last this-many minutes of a watched auction. */
   watchFinalCheckMinutes: number;
+  /** Daily cap on the watchlist's own getItem calls (matching + final checks), separate from auxGetItemDailyCap. */
+  watchGetItemDailyCap: number;
+  /** Matching getItems per watch pass; the rest stay unmatched for the next pass. */
+  watchGetItemsPerPass: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -151,6 +155,8 @@ export const DEFAULT_SETTINGS: Settings = {
   watchMinGapUsd: 200,
   watchRealertPct: 0.25,
   watchFinalCheckMinutes: 10,
+  watchGetItemDailyCap: 200,
+  watchGetItemsPerPass: 30,
 };
 
 /** Lower bounds for DB-loaded values that would otherwise hammer eBay or Discord. */
@@ -185,6 +191,8 @@ const MINIMUMS: Partial<Record<keyof Settings, number>> = {
   watchMinGapUsd: 0,
   watchRealertPct: 0.05,
   watchFinalCheckMinutes: 3,
+  watchGetItemDailyCap: 0,
+  watchGetItemsPerPass: 1,
 };
 
 /** Upper bounds for DB-loaded values that would otherwise make the sold check scrape harder or trust too little. */
@@ -207,6 +215,8 @@ const MAXIMUMS: Partial<Record<keyof Settings, number>> = {
   watchWindowHours: 240,
   watchMaxPages: 10,
   watchFinalCheckMinutes: 60,
+  watchGetItemDailyCap: 1000,
+  watchGetItemsPerPass: 200,
 };
 
 /** Non-object -> defaults; a non-positive/non-numeric entry -> that key's default. */

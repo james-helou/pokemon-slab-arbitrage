@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AUX_SOURCE, claimAuxCall } from '../../src/sources/ebay/aux-budget.js';
+import { AUX_SOURCE, claimAuxCall, WATCH_SOURCE } from '../../src/sources/ebay/aux-budget.js';
 import type { Budget } from '../../src/sources/ebay/budget.js';
 import { createTestDb } from '../helpers/test-db.js';
 
@@ -21,6 +21,16 @@ describe('claimAuxCall', () => {
     const db = await createTestDb();
     expect(await claimAuxCall(db, main(4000), 300, NOW)).toBe(false);
     expect(Number(await auxCalls(db))).toBe(0);
+  });
+
+  it('counts a named source separately from the shared aux counter', async () => {
+    const db = await createTestDb();
+    expect(await claimAuxCall(db, main(0), 1, NOW, WATCH_SOURCE)).toBe(true);
+    expect(await claimAuxCall(db, main(0), 1, NOW, WATCH_SOURCE)).toBe(false);
+    expect(Number(await auxCalls(db))).toBe(0);
+    expect(await claimAuxCall(db, main(0), 1, NOW)).toBe(true);
+    const watch = (await db.query<{ calls: number }>('select calls from api_usage where source = $1', [WATCH_SOURCE])).rows[0]?.calls;
+    expect(Number(watch)).toBe(1);
   });
 
   it('refuses everything when the cap is 0', async () => {

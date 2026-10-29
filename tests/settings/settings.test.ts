@@ -182,11 +182,22 @@ describe('watch settings', () => {
     expect(DEFAULT_SETTINGS).toMatchObject({
       stealMode: false, watchMode: true, watchScanMinutes: 15, watchWindowHours: 72, watchMaxPages: 3, watchMinBid: 300,
       watchMinBids: 2, watchMinGapPct: 0.25, watchMinGapUsd: 200, watchRealertPct: 0.25, watchFinalCheckMinutes: 10,
+      watchGetItemDailyCap: 200, watchGetItemsPerPass: 30,
     });
     const db = await createTestDb();
     await setSetting(db, 'watchScanMinutes', 1);
     await setSetting(db, 'watchMaxPages', 50);
     await setSetting(db, 'watchMinGapPct', 0);
     expect(await loadSettings(db)).toMatchObject({ watchScanMinutes: 5, watchMaxPages: 10, watchMinGapPct: 0.05 });
+  });
+
+  it('clamps the watch getItem budget', async () => {
+    const db = await createTestDb();
+    await setSetting(db, 'watchGetItemDailyCap', -5);
+    await setSetting(db, 'watchGetItemsPerPass', 0);
+    expect(await loadSettings(db)).toMatchObject({ watchGetItemDailyCap: 0, watchGetItemsPerPass: 1 });
+    await setSetting(db, 'watchGetItemDailyCap', 5000);
+    await setSetting(db, 'watchGetItemsPerPass', 900);
+    expect(await loadSettings(db)).toMatchObject({ watchGetItemDailyCap: 1000, watchGetItemsPerPass: 200 });
   });
 });

@@ -9,7 +9,7 @@ import { AUCTION_MIN_LEAD_MINUTES } from '../pipeline/auction-scan.js';
 import { catalogLookup, gate } from '../pipeline/evaluate.js';
 import { round2 } from '../scoring/fees.js';
 import { loadSettings, type Settings } from '../settings/settings.js';
-import { AUX_MAIN_RESERVE_RATIO, claimAuxCall } from '../sources/ebay/aux-budget.js';
+import { AUX_MAIN_RESERVE_RATIO, claimAuxCall, WATCH_SOURCE } from '../sources/ebay/aux-budget.js';
 import type { Budget } from '../sources/ebay/budget.js';
 import type { EbayClient, EbayItemSummary } from '../sources/ebay/ebay-client.js';
 import { itemCountry, mergeItemDetails, summaryToListing } from '../sources/ebay/normalize.js';
@@ -67,6 +67,17 @@ export async function watchScan(deps: WatchScanDeps): Promise<WatchScanSummary> 
   let rate: Promise<number | null> | undefined;
   const usdCad = () => (rate ??= deps.usdCad ? deps.usdCad().catch(() => null) : Promise.resolve(null));
 
+  // Watch getItems have their own daily counter (WATCH_SOURCE), still counted by the main budget in the client.
+  const claimGetItem = () => claimAuxCall(db, deps.budget, settings.watchGetItemDailyCap, deps.now, WATCH_SOURCE);
+  // Matching getItems are also capped per pass, so a backlog of new auctions cannot spend the day at once.
+  let matchGetItems = 0;
+  const claimMatchGetItem = async () => {
+    if (matchGetItems >= settings.watchGetItemsPerPass) return false;
+    if (!(await claimGetItem())) return false;
+    matchGetItems++;
+    return true;
+  };
+
   const refreshed = new Set<string>();
   let results: EbayItemSummary[] = [];
   try {
@@ -93,14 +104,14 @@ export async function watchScan(deps: WatchScanDeps): Promise<WatchScanSummary> 
       refreshed.add(row.externalId);
       if (listing.auction.endsAt.getTime() < cutoff) continue;
       summary.candidates++;
-      await watchOne(deps, settings, row, listing, summary, usdCad);
+      await watchOne(deps, settings, row, listing, summary, usdCad, claimMatchGetItem);
     } catch (err) {
       summary.errors++;
       log('error', 'watch auction failed', { externalId: s.itemId, err: errText(err) });
     }
   }
 
-  await finalCheck(deps, settings, now, refreshed, summary);
+  await finalCheck(deps, settings, now, refreshed, summary, claimGetItem);
   for (const r of await endedUnfinalized(db, now)) {
     try {
       await finalize(db, r, { finalBid: r.currentBid, finalBidCount: r.bidCount, endedAt: r.endsAt });
@@ -115,13 +126,13 @@ export async function watchScan(deps: WatchScanDeps): Promise<WatchScanSummary> 
 
 async function watchOne(
   deps: WatchScanDeps, settings: Settings, seen: WatchRow, listing: Listing, summary: WatchScanSummary,
-  usdCad: () => Promise<number | null>,
+  usdCad: () => Promise<number | null>, claimGetItem: () => Promise<boolean>,
 ): Promise<void> {
   const { db } = deps;
   let row = seen;
   if (row.matchStatus === null) {
-    const m = await matchAuction(deps, settings, listing);
-    if (m === null) return; // no aux getItem left today: retried next pass
+    const m = await matchAuction(deps, settings, listing, claimGetItem);
+    if (m === null) return; // no watch getItem left (today or this pass): retried next pass
     await setMatch(db, row, m);
     if ('status' in m) return;
     summary.matched++;
@@ -168,14 +179,16 @@ async function watchOne(
   else summary.alerts++;
 }
 
-/** Title match, then one getItem to re-match on aspects (as stage 2 of evaluate.ts). null = no aux call left. */
-async function matchAuction(deps: WatchScanDeps, settings: Settings, listing: Listing): Promise<MatchOutcome | null> {
+/** Title match, then one getItem to re-match on aspects (as stage 2 of evaluate.ts). null = no getItem left. */
+async function matchAuction(
+  deps: WatchScanDeps, settings: Settings, listing: Listing, claimGetItem: () => Promise<boolean>,
+): Promise<MatchOutcome | null> {
   const { lookup, sets } = catalogLookup(deps.db);
   const first = await matchListing({ title: listing.title, aspects: listing.aspects, itemCountry: itemCountry(listing) }, lookup, sets);
   if (!first.match) return { status: `no_match:${first.reasons.join(',')}` };
   const g1 = gateStatus(first.match, settings);
   if (g1) return { status: g1 };
-  if (!(await claimAuxCall(deps.db, deps.budget, settings.auxGetItemDailyCap, deps.now))) return null;
+  if (!(await claimGetItem())) return null;
   const item = await deps.ebay.getItem(listing.externalId);
   if (!item) return { status: 'gone' };
   const enriched = mergeItemDetails(listing, item, { origin: 'auction' });
@@ -202,11 +215,12 @@ function gateStatus(m: Parameters<typeof gate>[0], settings: Settings): string |
 /** Matched auctions in their last minutes that this pass's search did not return: refresh the bid by getItem. */
 async function finalCheck(
   deps: WatchScanDeps, settings: Settings, now: Date, refreshed: Set<string>, summary: WatchScanSummary,
+  claimGetItem: () => Promise<boolean>,
 ): Promise<void> {
   for (const r of await dueForFinalCheck(deps.db, now, settings.watchFinalCheckMinutes)) {
     if (refreshed.has(r.externalId)) continue;
     try {
-      if (!(await claimAuxCall(deps.db, deps.budget, settings.auxGetItemDailyCap, deps.now))) return;
+      if (!(await claimGetItem())) return;
       const item = await deps.ebay.getItem(r.externalId);
       const l = item ? summaryToListing(item, { origin: 'auction' }) : null;
       if (!l?.auction) continue;

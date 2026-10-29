@@ -127,13 +127,32 @@ describe('watchScan', () => {
     expect(sent).toEqual([]);
   });
 
-  it('leaves the auction unmatched for retry when the aux getItem cap is spent', async () => {
+  it('leaves the auction unmatched for retry when the watch getItem cap is spent', async () => {
     const { db, deps, calls } = await setup();
-    await setSetting(db, 'auxGetItemDailyCap', 0);
+    await setSetting(db, 'watchGetItemDailyCap', 0);
     const s = await watchScan(deps);
     expect(s.matched).toBe(0);
     expect(calls.getItem).toEqual([]);
     expect((await row(db, 'A1'))!.match_status).toBeNull();
+  });
+
+  it('uses its own getItem counter, not the shared aux cap', async () => {
+    const { db, deps, calls } = await setup();
+    await setSetting(db, 'auxGetItemDailyCap', 0);
+    expect((await watchScan(deps)).matched).toBe(2);
+    expect(calls.getItem.sort()).toEqual(['A1', 'A2']);
+    const usage = await db.query<{ source: string; calls: number }>('select source, calls from api_usage order by source');
+    expect(usage.rows.map((r) => [r.source, Number(r.calls)])).toEqual([['ebay_watch', 2]]);
+  });
+
+  it('stops matching getItems for the pass at the per-pass limit; the rest match next pass', async () => {
+    const { db, deps, calls } = await setup();
+    await setSetting(db, 'watchGetItemsPerPass', 1);
+    expect((await watchScan(deps)).matched).toBe(1);
+    expect(calls.getItem).toHaveLength(1);
+    expect(await watchScan(deps)).toMatchObject({ matched: 1 });
+    expect(calls.getItem.sort()).toEqual(['A1', 'A2']);
+    expect((await row(db, 'A2'))!.match_status).toBe('ok');
   });
 
   it('is paused / disabled / throttled before any search', async () => {
