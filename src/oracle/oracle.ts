@@ -82,9 +82,10 @@ export async function getValuation(
   }
 
   const since = new Date(now.getTime() - 90 * 86_400_000);
+  // auction_result comps belong to the watchlist's own-sales value; the steal oracle reads exactly what it did before.
   const { rows } = await db.query<{ price: string; sold_at: string; kind: CompKind }>(
     `select price, sold_at, kind from comps where card_id = $1 and grader = $2 and grade = $3 and sold_at >= $4
-       and ($5::boolean is not true or source_ref not like 'fixture:%')`,
+       and ($5::boolean is not true or source_ref not like 'fixture:%') and kind <> 'auction_result'`,
     [key.cardId, key.grader, key.grade, since, deps.excludeFixture ?? false],
   );
   const computed = computeValuation(

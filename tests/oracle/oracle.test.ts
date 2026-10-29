@@ -130,3 +130,19 @@ describe('getValuation cache', () => {
   });
 });
 
+
+describe('getValuation ignores watched auction results', () => {
+  it('values from the same comps as before the watchlist: auction_result rows are not read', async () => {
+    now = new Date('2026-10-03T12:00:00Z');
+    const db = await createTestDb();
+    await seedCards(db);
+    for (const [i, price] of [9000, 9100, 9200, 9300].entries()) {
+      await db.query(
+        `insert into comps (card_id, grader, grade, price, sold_at, kind, source_ref) values ($1, $2, $3, $4, $5, 'auction_result', $6)`,
+        [KEY.cardId, KEY.grader, KEY.grade, price, new Date(now.getTime() - (i + 1) * 86_400_000), `ebay_auction:${i}`],
+      );
+    }
+    const source = fixtureCompsSource([{ ...KEY, sales: [100, 110, 120, 130].map((price, i) => ({ price, daysAgo: i + 1 })) }], clock);
+    expect(await getValuation({ db, source, now: clock }, KEY, DEFAULT_SETTINGS)).toMatchObject({ value: 115, compCount: 4 });
+  });
+});
