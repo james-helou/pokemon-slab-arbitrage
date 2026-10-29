@@ -73,7 +73,7 @@ describe('watch repo', () => {
     await upsertSeen(d, seen({ externalId: 'ended', endsAt: at(-1) }), NOW);
     await upsertSeen(d, seen({ externalId: 'ended_done', endsAt: at(-2) }), NOW);
     for (const id of ['soon', 'later', 'ended', 'ended_done']) await setMatch(d, key(id), MATCH);
-    await finalize(d, key('ended_done'), { finalBid: 1, finalBidCount: 1, endedAt: at(-2) });
+    await finalize(d, key('ended_done'), { finalBid: 1, finalBidCount: 1, endedAt: at(-2), finalWindowMinutes: 10 });
     expect((await dueForFinalCheck(d, NOW, 10)).map((r) => r.externalId)).toEqual(['soon']);
     expect((await endedUnfinalized(d, NOW)).map((r) => r.externalId)).toEqual(['ended']);
   });
@@ -86,10 +86,11 @@ describe('watch repo', () => {
     await setMatch(d, key('m2'), MATCH);
     await setMatch(d, key('m1'), MATCH);
     await setMatch(d, key('u2'), { status: 'low_confidence' });
-    await finalize(d, key('m2'), { finalBid: 3100, finalBidCount: 2, endedAt: at(-1) });
-    await finalize(d, key('m2'), { finalBid: 3100, finalBidCount: 2, endedAt: at(-1) });
-    await finalize(d, key('m1'), { finalBid: 3100, finalBidCount: 1, endedAt: at(-1) });
-    await finalize(d, key('u2'), { finalBid: 3100, finalBidCount: 5, endedAt: at(-1) });
+    const f = (finalBid: number, finalBidCount: number) => ({ finalBid, finalBidCount, endedAt: at(-1), finalWindowMinutes: 10 });
+    await finalize(d, key('m2'), f(3100, 2));
+    await finalize(d, key('m2'), f(9999, 9)); // already finalized: no change
+    await finalize(d, key('m1'), f(3100, 1));
+    await finalize(d, key('u2'), f(3100, 5));
     const c = (await comps(d)).rows;
     expect(c).toHaveLength(1);
     expect(c[0]).toMatchObject({ kind: 'auction_result', source_ref: 'ebay_auction:m2', sold_at: at(-1) });
@@ -99,5 +100,39 @@ describe('watch repo', () => {
       `select final_bid, final_bid_count, ended_at from watch_auctions where external_id = 'm2'`,
     )).rows[0]!;
     expect([Number(row.final_bid), row.final_bid_count, row.ended_at]).toEqual([3100, 2, at(-1)]);
+  });
+
+  it('finalize writes no comp when the last sighting was before the final window, but still records the result', async () => {
+    const d = await db();
+    await upsertSeen(d, seen({ externalId: 'early', endsAt: at(30) }), NOW); // last seen 30 min before the end
+    await upsertSeen(d, seen({ externalId: 'late', endsAt: at(10) }), NOW); // exactly at the 10 min line
+    for (const id of ['early', 'late']) {
+      await setMatch(d, key(id), MATCH);
+      await finalize(d, key(id), { finalBid: 3000, finalBidCount: 5, endedAt: at(30), finalWindowMinutes: 10 });
+    }
+    expect((await comps(d)).rows.map((r) => r.source_ref)).toEqual(['ebay_auction:late']);
+    const ended = await d.query<{ external_id: string; ended_at: Date | null }>('select external_id, ended_at from watch_auctions order by 1');
+    expect(ended.rows.every((r) => r.ended_at !== null)).toBe(true);
+  });
+
+  it('stores reserve_met (a later sighting without it keeps it) and writes no comp when the reserve was not met', async () => {
+    const d = await db();
+    expect((await upsertSeen(d, seen({ externalId: 'r', endsAt: at(5) }), NOW)).reserveMet).toBeNull();
+    expect((await upsertSeen(d, seen({ externalId: 'r', endsAt: at(5), reserveMet: false }), NOW)).reserveMet).toBe(false);
+    expect((await upsertSeen(d, seen({ externalId: 'r', endsAt: at(5) }), at(1))).reserveMet).toBe(false);
+    await setMatch(d, key('r'), MATCH);
+    await finalize(d, key('r'), { finalBid: 3000, finalBidCount: 5, endedAt: at(5), finalWindowMinutes: 10 });
+    expect((await comps(d)).rows).toEqual([]);
+  });
+
+  it('finalize is one statement (update and comp insert together)', async () => {
+    const d = await db();
+    await upsertSeen(d, seen({ externalId: 'one', endsAt: at(-1) }), NOW);
+    await setMatch(d, key('one'), MATCH);
+    let n = 0;
+    const counting: Db = { query: (t, p) => { n++; return d.query(t, p); }, exec: (t) => d.exec(t) };
+    await finalize(counting, key('one'), { finalBid: 3000, finalBidCount: 5, endedAt: at(-1), finalWindowMinutes: 10 });
+    expect(n).toBe(1);
+    expect((await comps(d)).rows).toHaveLength(1);
   });
 });

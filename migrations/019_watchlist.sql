@@ -24,6 +24,8 @@ create table watch_auctions (
   final_bid numeric(12,2),
   final_bid_count int,
   ended_at timestamptz,
+  -- getItem's reservePriceMet when last known; false = reserve not met, so the final bid is not a sale.
+  reserve_met boolean,
   primary key (source, external_id)
 );
 create index watch_auctions_open_idx on watch_auctions (ends_at) where ended_at is null;

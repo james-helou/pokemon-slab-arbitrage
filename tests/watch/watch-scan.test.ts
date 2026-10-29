@@ -29,6 +29,7 @@ async function setup(opts: { used?: number; value?: number | null | 'deferred' }
     now: T0,
     results: [auction('A1', 3000, 5), auction('A2', 2100, 3)] as EbayItemSummary[],
     complete: true,
+    searchFails: false,
     /** getItem overrides by id; default: the current search summary with the fixture aspects. */
     items: {} as Record<string, EbayItemSummary | null>,
     sendFails: false,
@@ -45,6 +46,7 @@ async function setup(opts: { used?: number; value?: number | null | 'deferred' }
       searchLiveAuctions: async (o) => {
         calls.search++;
         calls.searchArgs.push(o);
+        if (state.searchFails) throw new Error('eBay search 500');
         return { items: state.results, complete: state.complete };
       },
       getItem: async (id) => {
@@ -230,6 +232,9 @@ describe('watchScan', () => {
   it('finalizes an ended auction with its last bid and writes one auction_result comp', async () => {
     const { db, deps, state } = await setup();
     await watchScan(deps);
+    // Last sighting inside the final window.
+    state.now = new Date(END.getTime() - 5 * 60_000);
+    await watchScan(deps);
     state.now = new Date(END.getTime() + 60_000);
     state.results = [];
     const s = await watchScan(deps);
@@ -240,6 +245,54 @@ describe('watchScan', () => {
       `select price, kind, source_ref from comps where kind = 'auction_result' order by source_ref`,
     );
     expect(rows.map((r) => [Number(r.price), r.source_ref])).toEqual([[3000, 'ebay_auction:A1'], [2100, 'ebay_auction:A2']]);
+  });
+
+  it('finalizes without a comp when the last sighting was before the final window', async () => {
+    const { db, deps, state } = await setup();
+    await watchScan(deps); // seen 120 min before the end, never again
+    state.now = new Date(END.getTime() + 60_000);
+    state.results = [];
+    expect((await watchScan(deps)).finalized).toBe(2);
+    expect((await db.query(`select 1 from comps where kind = 'auction_result'`)).rows).toEqual([]);
+  });
+
+  it('skips finalization in a pass whose search failed', async () => {
+    const { db, deps, state } = await setup();
+    await watchScan(deps);
+    state.now = new Date(END.getTime() + 60_000);
+    state.searchFails = true;
+    expect(await watchScan(deps)).toMatchObject({ finalized: 0, errors: 1 });
+    expect((await row(db, 'A1'))!.ended_at).toBeNull();
+    state.searchFails = false;
+    state.results = [];
+    expect((await watchScan(deps)).finalized).toBe(2);
+  });
+
+  it('refreshes rows ending before the next pass by getItem even when the search returned them, storing reserve_met', async () => {
+    const { db, deps, state, calls } = await setup();
+    await watchScan(deps);
+    state.now = new Date(END.getTime() - 12 * 60_000); // ends within watchScanMinutes (15), not yet within 10
+    state.items = { A1: { ...auction('A1', 3300, 6), reservePriceMet: false } as EbayItemSummary };
+    calls.getItem = [];
+    await watchScan(deps);
+    expect(calls.getItem.sort()).toEqual(['A1', 'A2']);
+    const r = await row(db, 'A1');
+    expect(r).toMatchObject({ reserve_met: false });
+    expect(Number(r!.current_bid)).toBe(3300);
+    expect(new Date(r!.last_seen_at as string)).toEqual(state.now);
+  });
+
+  it('writes no comp for an auction whose reserve was not met', async () => {
+    const { db, deps, state } = await setup();
+    await watchScan(deps);
+    state.now = new Date(END.getTime() - 5 * 60_000);
+    state.items = { A1: { ...auction('A1', 3300, 6), reservePriceMet: false } as EbayItemSummary };
+    await watchScan(deps);
+    state.now = new Date(END.getTime() + 60_000);
+    state.results = [];
+    expect((await watchScan(deps)).finalized).toBe(2);
+    const { rows } = await db.query<{ source_ref: string }>(`select source_ref from comps where kind = 'auction_result'`);
+    expect(rows.map((r) => r.source_ref)).toEqual(['ebay_auction:A2']);
   });
 
   it('processes the items of a partial search', async () => {

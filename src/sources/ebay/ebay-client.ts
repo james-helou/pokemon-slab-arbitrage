@@ -27,6 +27,8 @@ export interface EbayItemSummary {
 }
 
 export interface EbayItem extends EbayItemSummary {
+  /** Auctions with a reserve only: false while the high bid is below it. */
+  reservePriceMet?: boolean;
   localizedAspects?: { name: string; value: string }[];
   estimatedAvailabilities?: { estimatedAvailabilityStatus?: string }[];
 }

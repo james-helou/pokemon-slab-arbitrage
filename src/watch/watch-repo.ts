@@ -11,6 +11,8 @@ export interface SeenAuction extends WatchKey {
   endsAt: Date;
   currentBid: number;
   bidCount: number;
+  /** getItem's reservePriceMet; absent/null = unknown, which never overwrites a stored value. */
+  reserveMet?: boolean | null;
 }
 
 export interface WatchRow extends SeenAuction {
@@ -31,6 +33,7 @@ export interface WatchRow extends SeenAuction {
   finalBid: number | null;
   finalBidCount: number | null;
   endedAt: Date | null;
+  reserveMet: boolean | null;
 }
 
 interface RawRow {
@@ -40,6 +43,7 @@ interface RawRow {
   value_at_alert: string | number | null; sources_at_alert: unknown; alerted_at: Date | string | null;
   alerted_bid: string | number | null; realerted_at: Date | string | null; realerted_bid: string | number | null;
   final_bid: string | number | null; final_bid_count: number | null; ended_at: Date | string | null;
+  reserve_met: boolean | null;
 }
 
 const num = (v: string | number | null): number | null => (v === null ? null : Number(v));
@@ -53,7 +57,7 @@ function toRow(r: RawRow): WatchRow {
     bidCount: Number(r.bid_count), matchStatus: r.match_status, valueAtAlert: num(r.value_at_alert),
     sourcesAtAlert: r.sources_at_alert, alertedAt: date(r.alerted_at), alertedBid: num(r.alerted_bid),
     realertedAt: date(r.realerted_at), realertedBid: num(r.realerted_bid), finalBid: num(r.final_bid),
-    finalBidCount: num(r.final_bid_count), endedAt: date(r.ended_at),
+    finalBidCount: num(r.final_bid_count), endedAt: date(r.ended_at), reserveMet: r.reserve_met ?? null,
   };
 }
 
@@ -61,13 +65,14 @@ function toRow(r: RawRow): WatchRow {
 export async function upsertSeen(db: Db, a: SeenAuction, now: Date): Promise<WatchRow> {
   const { rows } = await db.query<RawRow>(
     `insert into watch_auctions (source, external_id, title, url, image_url, ends_at, current_bid, bid_count,
-       first_seen_at, last_seen_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+       first_seen_at, last_seen_at, reserve_met)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10)
      on conflict (source, external_id) do update set
        current_bid = excluded.current_bid, bid_count = excluded.bid_count, ends_at = excluded.ends_at,
-       last_seen_at = excluded.last_seen_at, title = excluded.title, image_url = excluded.image_url
+       last_seen_at = excluded.last_seen_at, title = excluded.title, image_url = excluded.image_url,
+       reserve_met = coalesce(excluded.reserve_met, watch_auctions.reserve_met)
      returning *`,
-    [a.source, a.externalId, a.title, a.url, a.imageUrl, a.endsAt, a.currentBid, a.bidCount, now],
+    [a.source, a.externalId, a.title, a.url, a.imageUrl, a.endsAt, a.currentBid, a.bidCount, now, a.reserveMet ?? null],
   );
   return toRow(rows[0]!);
 }
@@ -113,7 +118,7 @@ export async function markAlerted(
   );
 }
 
-/** Matched open auctions ending within the next `minutes` (not yet ended). */
+/** Matched open auctions ending within the next `minutes` (not yet ended): the watch passes watchScanMinutes. */
 export async function dueForFinalCheck(db: Db, now: Date, minutes: number): Promise<WatchRow[]> {
   const { rows } = await db.query<RawRow>(
     `select * from watch_auctions
@@ -133,23 +138,28 @@ export async function endedUnfinalized(db: Db, now: Date): Promise<WatchRow[]> {
   return rows.map(toRow);
 }
 
-/** Record the result; a matched auction with 2+ bids also becomes an auction_result comp (once). */
+/**
+ * Record the result (once: an already finalized row is left alone). In the same statement, a matched auction with 2+
+ * bids becomes an auction_result comp, but only when the result is trustworthy: the last sighting was in the final
+ * window (last_seen_at >= ends_at - finalWindowMinutes) and the reserve was not known to be unmet.
+ */
 export async function finalize(
   db: Db,
   k: WatchKey,
-  f: { finalBid: number; finalBidCount: number; endedAt: Date },
+  f: { finalBid: number; finalBidCount: number; endedAt: Date; finalWindowMinutes: number },
 ): Promise<void> {
   await db.query(
-    `update watch_auctions set final_bid = $3, final_bid_count = $4, ended_at = $5
-     where source = $1 and external_id = $2`,
-    [k.source, k.externalId, f.finalBid, f.finalBidCount, f.endedAt],
-  );
-  await db.query(
-    `insert into comps (card_id, grader, grade, price, sold_at, kind, source_ref)
+    `with done as (
+       update watch_auctions set final_bid = $3, final_bid_count = $4, ended_at = $5
+       where source = $1 and external_id = $2 and ended_at is null
+       returning *
+     )
+     insert into comps (card_id, grader, grade, price, sold_at, kind, source_ref)
      select card_id, grader, grade, final_bid, ended_at, 'auction_result', 'ebay_auction:' || external_id
-     from watch_auctions
-     where source = $1 and external_id = $2 and match_status = 'ok' and final_bid_count >= 2
+     from done
+     where match_status = 'ok' and final_bid_count >= 2 and reserve_met is not false
+       and last_seen_at >= ends_at - make_interval(mins => $6::int)
      on conflict (kind, source_ref) do nothing`,
-    [k.source, k.externalId],
+    [k.source, k.externalId, f.finalBid, f.finalBidCount, f.endedAt, f.finalWindowMinutes],
   );
 }

@@ -78,13 +78,15 @@ export async function watchScan(deps: WatchScanDeps): Promise<WatchScanSummary> 
     return true;
   };
 
-  const refreshed = new Set<string>();
   let results: EbayItemSummary[] = [];
+  // A partial search (a later page failed) still counts as a search that ran.
+  let searched = false;
   try {
     const r = await deps.ebay.searchLiveAuctions({
       windowHours: settings.watchWindowHours, minBid: settings.watchMinBid, maxPages: settings.watchMaxPages,
     });
     results = r.items;
+    searched = true;
     if (!r.complete) log('warn', 'watch search partial', { items: r.items.length });
   } catch (err) {
     summary.errors++;
@@ -101,7 +103,6 @@ export async function watchScan(deps: WatchScanDeps): Promise<WatchScanSummary> 
         source: 'ebay', externalId: listing.externalId, title: listing.title, url: listing.url, imageUrl: listing.imageUrl,
         endsAt: listing.auction.endsAt, currentBid: listing.auction.currentBid, bidCount: listing.auction.bidCount,
       }, now);
-      refreshed.add(row.externalId);
       if (listing.auction.endsAt.getTime() < cutoff) continue;
       summary.candidates++;
       await watchOne(deps, settings, row, listing, summary, usdCad, claimMatchGetItem);
@@ -111,10 +112,14 @@ export async function watchScan(deps: WatchScanDeps): Promise<WatchScanSummary> 
     }
   }
 
-  await finalCheck(deps, settings, now, refreshed, summary, claimGetItem);
+  await finalCheck(deps, settings, now, summary, claimGetItem);
+  // Without a search this pass the stored bids may be stale: finalize next pass instead.
+  if (!searched) return summary;
   for (const r of await endedUnfinalized(db, now)) {
     try {
-      await finalize(db, r, { finalBid: r.currentBid, finalBidCount: r.bidCount, endedAt: r.endsAt });
+      await finalize(db, r, {
+        finalBid: r.currentBid, finalBidCount: r.bidCount, endedAt: r.endsAt, finalWindowMinutes: settings.watchFinalCheckMinutes,
+      });
       summary.finalized++;
     } catch (err) {
       summary.errors++;
@@ -212,13 +217,20 @@ function gateStatus(m: Parameters<typeof gate>[0], settings: Settings): string |
   return 'low_confidence';
 }
 
-/** Matched auctions in their last minutes that this pass's search did not return: refresh the bid by getItem. */
+/**
+ * Matched auctions ending before the next pass: refresh the bid (and reservePriceMet, which the search lacks) by
+ * getItem, even when this pass's search returned them, and record last_seen_at.
+ *
+ * Trade-off: passes run every watchScanMinutes (15) but the final window is watchFinalCheckMinutes (10), so an auction
+ * is not always inside its final window at any pass. We refresh everything ending before the next pass (the latest
+ * sighting we will ever get), and finalize writes a comp only when that sighting landed in the final window. Auctions
+ * whose last pass fell earlier are recorded without a comp: fewer results, but no stale bid passed off as a sale.
+ */
 async function finalCheck(
-  deps: WatchScanDeps, settings: Settings, now: Date, refreshed: Set<string>, summary: WatchScanSummary,
+  deps: WatchScanDeps, settings: Settings, now: Date, summary: WatchScanSummary,
   claimGetItem: () => Promise<boolean>,
 ): Promise<void> {
-  for (const r of await dueForFinalCheck(deps.db, now, settings.watchFinalCheckMinutes)) {
-    if (refreshed.has(r.externalId)) continue;
+  for (const r of await dueForFinalCheck(deps.db, now, settings.watchScanMinutes)) {
     try {
       if (!(await claimGetItem())) return;
       const item = await deps.ebay.getItem(r.externalId);
@@ -227,6 +239,7 @@ async function finalCheck(
       await upsertSeen(deps.db, {
         source: r.source, externalId: r.externalId, title: l.title, url: r.url, imageUrl: l.imageUrl ?? r.imageUrl,
         endsAt: l.auction.endsAt, currentBid: l.auction.currentBid, bidCount: l.auction.bidCount,
+        reserveMet: typeof item?.reservePriceMet === 'boolean' ? item.reservePriceMet : null,
       }, now);
     } catch (err) {
       summary.errors++;
