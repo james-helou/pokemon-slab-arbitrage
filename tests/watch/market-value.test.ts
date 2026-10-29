@@ -118,8 +118,13 @@ describe('ownSalesReader', () => {
   });
 
   it('rounds the even-count median to cents', async () => {
-    const db = await dbWith([comp(100, 1), comp(100.01, 2), comp(100.02, 3), comp(200, 4)]);
+    const db = await dbWith([comp(100, 1), comp(100.01, 2), comp(100.02, 3), comp(200, 4, { kind: 'auction_result', ref: 'ebay_auction:r' })]);
     expect(await ownSalesReader(db, () => NOW, 3)(KEY)).toMatchObject({ value: 100.02 });
+  });
+
+  it('is null without at least one auction_result: disappearing BINs alone are last asks, not sales', async () => {
+    const db = await dbWith([comp(100, 1), comp(200, 2), comp(300, 3), comp(400, 4)]);
+    expect(await ownSalesReader(db, () => NOW, 3)(KEY)).toBeNull();
   });
 
   it('is null under the minimum sale count', async () => {

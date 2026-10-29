@@ -52,17 +52,22 @@ export function pptReader(aggregate: AggregatePriceSource, minSales: number): So
   };
 }
 
-/** Median of our own recorded sales (disappearing BINs + watched auction results), last 90 days, >= minSales. */
+/**
+ * Median of our own recorded sales (disappearing BINs + watched auction results), last 90 days, >= minSales. null
+ * unless at least one is an auction_result: disappearing BINs are last asks, not proven sales (the oracle likewise
+ * refuses BIN-only values).
+ */
 export function ownSalesReader(db: Db, now: () => Date, minSales: number): SourceReader {
   return async (key) => {
     const since = new Date(now().getTime() - OWN_SALES_WINDOW_DAYS * 86_400_000);
-    const { rows } = await db.query<{ price: string; sold_at: string | Date }>(
-      `select price, sold_at from comps
+    const { rows } = await db.query<{ price: string; sold_at: string | Date; kind: string }>(
+      `select price, sold_at, kind from comps
        where card_id = $1 and grader = $2 and grade = $3 and sold_at >= $4
          and kind in ('disappearing_bin', 'auction_result') and source_ref not like 'fixture:%'`,
       [key.cardId, key.grader, key.grade, since],
     );
     if (rows.length === 0 || rows.length < minSales) return null;
+    if (!rows.some((r) => r.kind === 'auction_result')) return null;
     // Work in cents so the even-count mean of two prices rounds like a price, not like a float.
     const cents = rows.map((r) => Math.round(Number(r.price) * 100)).sort((a, b) => a - b);
     const mid = cents.length >> 1;
