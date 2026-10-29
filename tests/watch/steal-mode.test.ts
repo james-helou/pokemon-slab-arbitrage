@@ -38,7 +38,8 @@ describe('buildWatchReaders', () => {
     };
     const readers = buildWatchReaders({ db, now, minSales: 3, aggregate });
     expect(readers).toHaveLength(2);
-    expect(await readers[0]!(KEY)).toMatchObject({ name: 'ppt', value: 2000 });
-    expect(await readers[1]!(KEY)).toBeNull();
+    // Free own sales first, PPT last.
+    expect(await readers[0]!(KEY)).toBeNull();
+    expect(await readers[1]!(KEY)).toMatchObject({ name: 'ppt', value: 2000 });
   });
 });

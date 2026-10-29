@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ValuationKey } from '../../src/domain/types.js';
 import type { AggregatePrice, AggregatePriceSource } from '../../src/oracle/aggregate-source.js';
-import { marketValue, ownSalesReader, pptReader, type SourceValue } from '../../src/watch/market-value.js';
+import { buildWatchReaders, marketValue, ownSalesReader, pptReader, type SourceValue } from '../../src/watch/market-value.js';
 import { seedCards } from '../helpers/fixtures.js';
 import { createTestDb } from '../helpers/test-db.js';
 
@@ -32,6 +32,23 @@ describe('marketValue', () => {
     expect(await marketValue(KEY, [async () => sv('own_sales', 2000), async () => 'deferred'], vi.fn())).toBe('deferred');
   });
 
+  it('stops once the value so far settles the verdict: later (paid) readers are not called', async () => {
+    const paid = vi.fn(async () => sv('ppt', 5000));
+    const settled = vi.fn((max: number) => max >= 2900);
+    const mv = await marketValue(KEY, [async () => sv('own_sales', 2900), paid], vi.fn(), { settled });
+    expect(mv).toEqual({ value: 2900, sources: [sv('own_sales', 2900)] });
+    expect(paid).not.toHaveBeenCalled();
+    expect(settled).toHaveBeenCalledWith(2900);
+  });
+
+  it('a settled value wins over an earlier deferred reader; no value still calls every reader', async () => {
+    expect(await marketValue(KEY, [async () => 'deferred', async () => sv('own_sales', 2900)], vi.fn(), { settled: () => true }))
+      .toEqual({ value: 2900, sources: [sv('own_sales', 2900)] });
+    const paid = vi.fn(async () => sv('ppt', 1000));
+    expect(await marketValue(KEY, [async () => null, paid], vi.fn(), { settled: () => true })).toEqual({ value: 1000, sources: [sv('ppt', 1000)] });
+    expect(paid).toHaveBeenCalledOnce();
+  });
+
   it('skips and logs a throwing reader', async () => {
     const log = vi.fn();
     const mv = await marketValue(KEY, [async () => { throw new Error('boom'); }, async () => sv('ppt', 900)], log);
@@ -57,6 +74,20 @@ describe('pptReader', () => {
   it('is deferred when the source reports it could not try', async () => {
     const deferring: AggregatePriceSource = { fetchAggregate: async (_k, o) => { o?.onDeferred?.(); return null; } };
     expect(await pptReader(deferring, 3)(KEY)).toBe('deferred');
+  });
+});
+
+describe('buildWatchReaders', () => {
+  it('orders the free own-sales reader before PPT', async () => {
+    const db = await createTestDb();
+    await seedCards(db);
+    const fetchAggregate = vi.fn(async () => null);
+    const readers = buildWatchReaders({ db, now: () => NOW, minSales: 3, aggregate: { fetchAggregate } });
+    expect(readers).toHaveLength(2);
+    expect(await readers[0]!(KEY)).toBeNull();
+    expect(fetchAggregate).not.toHaveBeenCalled();
+    await readers[1]!(KEY);
+    expect(fetchAggregate).toHaveBeenCalledOnce();
   });
 });
 

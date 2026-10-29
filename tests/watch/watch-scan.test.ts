@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AlertPayload } from '../../src/discord/alert-payload.js';
 import { silentLog } from '../../src/log.js';
 import { setSetting } from '../../src/settings/settings.js';
@@ -157,6 +157,17 @@ describe('watchScan', () => {
     expect(sent).toEqual([]);
     deps.readers = [async () => ({ name: 'ppt', value: 2000, saleCount: 12, asOf: T0 })];
     expect((await watchScan(deps)).alerts).toBe(1);
+  });
+
+  it('skips the paid source when the free sources already put the bid below the gap', async () => {
+    const { deps, sent } = await setup();
+    const paid = vi.fn(async () => ({ name: 'ppt', value: 1000, saleCount: 12, asOf: T0 }));
+    // A1 bid 3000 vs free 2900: fails the 25% gap whatever PPT says. A2 bid 2100 vs 2900: same.
+    deps.readers = [async () => ({ name: 'own_sales', value: 2900, saleCount: 3, asOf: T0 }), paid];
+    const s = await watchScan(deps);
+    expect(s).toMatchObject({ matched: 2, alerts: 0, deferred: 0 });
+    expect(paid).not.toHaveBeenCalled();
+    expect(sent).toEqual([]);
   });
 
   it('does not mark the auction alerted when the send fails, and alerts on the next pass', async () => {

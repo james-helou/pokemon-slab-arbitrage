@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS } from '../../src/settings/settings.js';
-import { decideWatch, type WatchState } from '../../src/watch/watch-rule.js';
+import { belowGap, decideWatch, type WatchState } from '../../src/watch/watch-rule.js';
 
 const t = DEFAULT_SETTINGS;
 const st = (o: Partial<WatchState> = {}): WatchState => ({ bid: 3000, bidCount: 2, value: 2000, alertedBid: null, realerted: false, ...o });
@@ -35,5 +35,14 @@ describe('decideWatch', () => {
   it('never alerts without a value', () => {
     expect(decideWatch(st({ value: null }), t)).toEqual({ action: 'none', reason: 'no_value' });
     expect(decideWatch(st({ value: 0 }), t)).toEqual({ action: 'none', reason: 'no_value' });
+  });
+});
+
+describe('belowGap', () => {
+  it('matches decideWatch: below either gap is below, exactly at both is not', () => {
+    expect(belowGap(1000, 800, t)).toBe(false);
+    expect(belowGap(999.99, 800, t)).toBe(true);
+    expect(belowGap(3000, 2900, t)).toBe(true);
+    expect(decideWatch(st({ bid: 1000, value: 800 }), t).action).toBe('alert');
   });
 });

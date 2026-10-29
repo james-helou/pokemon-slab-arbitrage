@@ -14,10 +14,12 @@ const OWN_SALES_WINDOW_DAYS = 90;
 /**
  * Highest usable source value; null when no source has one. 'deferred' when any reader could not try: the value is a
  * max, so a missing guide could only raise it, and the caller must not decide on the rest. A reader that throws is
- * logged and skipped.
+ * logged and skipped. `settled(max)` true after a reader stops early: no later source can change the verdict (the
+ * bid already misses the gap), so later (paid) readers are not called and earlier deferrals no longer matter.
+ * Callers order free readers first.
  */
 export async function marketValue(
-  key: ValuationKey, readers: SourceReader[], log: Log,
+  key: ValuationKey, readers: SourceReader[], log: Log, opts: { settled?: (max: number) => boolean } = {},
 ): Promise<MarketValue | null | 'deferred'> {
   const sources: SourceValue[] = [];
   let deferred = false;
@@ -28,6 +30,10 @@ export async function marketValue(
       else if (v && Number.isFinite(v.value) && v.value > 0) sources.push(v);
     } catch (err) {
       log('warn', 'market value source failed', { ...key, err: err instanceof Error ? err.message : String(err) });
+    }
+    if (sources.length > 0 && opts.settled) {
+      const max = Math.max(...sources.map((s) => s.value));
+      if (opts.settled(max)) return { value: max, sources };
     }
   }
   if (deferred) return 'deferred';
@@ -66,12 +72,15 @@ export function ownSalesReader(db: Db, now: () => Date, minSales: number): Sourc
   };
 }
 
-/** Watch readers: PPT (when an aggregate source is wired) and our own sales. Built per run so minSales is current. */
+/**
+ * Watch readers, free first: our own sales, then PPT (when an aggregate source is wired), so a bid already below the
+ * gap spends no PPT credits. Built per run so minSales is current.
+ */
 export function buildWatchReaders(o: {
   db: Db; now: () => Date; minSales: number; aggregate?: AggregatePriceSource | undefined;
 }): SourceReader[] {
   return [
-    ...(o.aggregate ? [pptReader(o.aggregate, o.minSales)] : []),
     ownSalesReader(o.db, o.now, o.minSales),
+    ...(o.aggregate ? [pptReader(o.aggregate, o.minSales)] : []),
   ];
 }

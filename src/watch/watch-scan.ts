@@ -17,7 +17,7 @@ import { marketValue, type SourceReader } from './market-value.js';
 import {
   dueForFinalCheck, endedUnfinalized, finalize, markAlerted, setMatch, upsertSeen, type WatchRow,
 } from './watch-repo.js';
-import { decideWatch } from './watch-rule.js';
+import { belowGap, decideWatch } from './watch-rule.js';
 
 export interface WatchScanDeps {
   db: Db;
@@ -133,7 +133,7 @@ async function watchOne(
   if (row.alertedBid !== null && row.currentBid < round2(row.alertedBid * (1 + settings.watchRealertPct))) return;
 
   const key: ValuationKey = { cardId: row.cardId, grader: row.grader, grade: row.grade };
-  const mv = await marketValue(key, deps.readers, deps.log);
+  const mv = await marketValue(key, deps.readers, deps.log, { settled: (max) => belowGap(row.currentBid, max, settings) });
   if (mv === 'deferred') {
     // A guide could not be read (credits, outage): no decision on the rest, the next pass retries.
     summary.deferred++;
