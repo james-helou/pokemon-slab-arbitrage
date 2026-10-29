@@ -149,7 +149,8 @@ describe('eBay client', () => {
       const f = pagedFetch([3]);
       const out = await client(f.fn, f.budget, { country: 'CA' })
         .searchLiveAuctions({ windowHours: 72, minBid: 300, maxPages: 3 });
-      expect(out).toHaveLength(3);
+      expect(out.items).toHaveLength(3);
+      expect(out.complete).toBe(true);
       const u = new URL(f.urls[0]!);
       expect(u.searchParams.get('filter')).toBe(
         'buyingOptions:{AUCTION},conditionIds:{2750},price:[300..],priceCurrency:USD,itemEndDate:[..2026-10-06T12:00:00.000Z],deliveryCountry:CA',
@@ -164,7 +165,8 @@ describe('eBay client', () => {
     it('pages by offset and stops on a short page', async () => {
       const f = pagedFetch([200, 200, 50, 200]);
       const out = await client(f.fn, f.budget).searchLiveAuctions({ windowHours: 72, minBid: 300, maxPages: 10 });
-      expect(out).toHaveLength(450);
+      expect(out).toMatchObject({ complete: true });
+      expect(out.items).toHaveLength(450);
       expect(f.urls.map((u) => new URL(u).searchParams.get('offset'))).toEqual(['0', '200', '400']);
       expect(f.budgetCalls()).toBe(3);
     });
@@ -172,14 +174,35 @@ describe('eBay client', () => {
     it('stops at maxPages', async () => {
       const f = pagedFetch([200, 200, 200, 200]);
       const out = await client(f.fn, f.budget).searchLiveAuctions({ windowHours: 72, minBid: 300, maxPages: 2 });
-      expect(out).toHaveLength(400);
+      expect(out.items).toHaveLength(400);
+      expect(out.complete).toBe(true);
       expect(f.urls).toHaveLength(2);
     });
 
-    it('throws on a non-OK page', async () => {
-      const f = pagedFetch([200, 200], 1);
+    it('throws when the first page fails', async () => {
+      const f = pagedFetch([200, 200], 0);
       await expect(client(f.fn, f.budget).searchLiveAuctions({ windowHours: 72, minBid: 300, maxPages: 3 }))
         .rejects.toThrow(/eBay live auction search 500/);
+    });
+
+    it('keeps the pages collected when a later page fails, flagged incomplete', async () => {
+      const f = pagedFetch([200, 200, 200], 1);
+      const out = await client(f.fn, f.budget).searchLiveAuctions({ windowHours: 72, minBid: 300, maxPages: 3 });
+      expect(out.items).toHaveLength(200);
+      expect(out.complete).toBe(false);
+      expect(f.urls).toHaveLength(2);
+    });
+
+    it('keeps the pages collected when the budget runs out on a later page', async () => {
+      const f = pagedFetch([200, 200, 200]);
+      let n = 0;
+      const budget: Budget = {
+        limit: 1, usedToday: async () => n,
+        beforeCall: async () => { if (++n > 1) throw new BudgetExceededError('over'); },
+      };
+      const out = await client(f.fn, budget).searchLiveAuctions({ windowHours: 72, minBid: 300, maxPages: 3 });
+      expect(out).toMatchObject({ complete: false });
+      expect(out.items).toHaveLength(200);
     });
   });
 

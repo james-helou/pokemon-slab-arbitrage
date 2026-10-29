@@ -31,12 +31,22 @@ export interface EbayItem extends EbayItemSummary {
   estimatedAvailabilities?: { estimatedAvailabilityStatus?: string }[];
 }
 
+export interface LiveAuctionSearch {
+  items: EbayItemSummary[];
+  /** false when a later page failed and only the earlier pages are in items. */
+  complete: boolean;
+}
+
 export interface EbayClient {
   searchNewGraded(): Promise<EbayItemSummary[]>;
   /** Auctions ending within windowMinutes, soonest first. No price floor: it would apply to the current bid. */
   searchEndingAuctions(windowMinutes: number): Promise<EbayItemSummary[]>;
-  /** Live auctions with a current bid >= minBid ending within windowHours, ending soonest first, up to maxPages x 200. */
-  searchLiveAuctions(o: { windowHours: number; minBid: number; maxPages: number }): Promise<EbayItemSummary[]>;
+  /**
+   * Live auctions with a current bid >= minBid ending within windowHours, ending soonest first, up to maxPages x 200.
+   * Throws when the first page fails; a later page failing (non-OK, BudgetExceededError, network) keeps what was
+   * collected, complete: false.
+   */
+  searchLiveAuctions(o: { windowHours: number; minBid: number; maxPages: number }): Promise<LiveAuctionSearch>;
   getItem(itemId: string): Promise<EbayItem | null>;
 }
 
@@ -140,13 +150,21 @@ export function createEbayClient(o: EbayClientOptions): EbayClient {
           limit: String(PAGE_SIZE),
           offset: String(page * PAGE_SIZE),
         });
-        const res = await get(`/buy/browse/v1/item_summary/search?${params.toString()}`);
-        if (!res.ok) throw new Error(`eBay live auction search ${res.status}: ${await res.text()}`);
-        const items = ((await res.json()) as { itemSummaries?: EbayItemSummary[] }).itemSummaries ?? [];
+        let items: EbayItemSummary[];
+        try {
+          const res = await get(`/buy/browse/v1/item_summary/search?${params.toString()}`);
+          if (!res.ok) throw new Error(`eBay live auction search ${res.status}: ${await res.text()}`);
+          items = ((await res.json()) as { itemSummaries?: EbayItemSummary[] }).itemSummaries ?? [];
+        } catch (err) {
+          // Page 0 failing is a failed search; any later page failure (non-OK, budget, network) keeps what the
+          // earlier pages found.
+          if (page === 0) throw err;
+          return { items: out, complete: false };
+        }
         out.push(...items);
         if (items.length < PAGE_SIZE) break;
       }
-      return out;
+      return { items: out, complete: true };
     },
     async getItem(itemId) {
       const res = await get(`/buy/browse/v1/item/${encodeURIComponent(itemId)}`);

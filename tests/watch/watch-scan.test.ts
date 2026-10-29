@@ -28,6 +28,7 @@ async function setup(opts: { used?: number; value?: number | null | 'deferred' }
   const state = {
     now: T0,
     results: [auction('A1', 3000, 5), auction('A2', 2100, 3)] as EbayItemSummary[],
+    complete: true,
     /** getItem overrides by id; default: the current search summary with the fixture aspects. */
     items: {} as Record<string, EbayItemSummary | null>,
     sendFails: false,
@@ -41,7 +42,11 @@ async function setup(opts: { used?: number; value?: number | null | 'deferred' }
   const deps: WatchScanDeps = {
     db, budget, readers: [reader], log: silentLog, now: () => state.now,
     ebay: {
-      searchLiveAuctions: async (o) => { calls.search++; calls.searchArgs.push(o); return state.results; },
+      searchLiveAuctions: async (o) => {
+        calls.search++;
+        calls.searchArgs.push(o);
+        return { items: state.results, complete: state.complete };
+      },
       getItem: async (id) => {
         calls.getItem.push(id);
         const over = id in state.items ? state.items[id] : state.results.find((r) => r.itemId === id) ?? auction(id, 3000, 5);
@@ -216,6 +221,14 @@ describe('watchScan', () => {
       `select price, kind, source_ref from comps where kind = 'auction_result' order by source_ref`,
     );
     expect(rows.map((r) => [Number(r.price), r.source_ref])).toEqual([[3000, 'ebay_auction:A1'], [2100, 'ebay_auction:A2']]);
+  });
+
+  it('processes the items of a partial search', async () => {
+    const { deps, state, sent } = await setup();
+    state.complete = false;
+    const s = await watchScan(deps);
+    expect(s).toMatchObject({ seen: 2, matched: 2, alerts: 1 });
+    expect(sent).toHaveLength(1);
   });
 
   it('keeps going when one auction fails', async () => {

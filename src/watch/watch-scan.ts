@@ -11,7 +11,7 @@ import { round2 } from '../scoring/fees.js';
 import { loadSettings, type Settings } from '../settings/settings.js';
 import { AUX_MAIN_RESERVE_RATIO, claimAuxCall } from '../sources/ebay/aux-budget.js';
 import type { Budget } from '../sources/ebay/budget.js';
-import type { EbayClient } from '../sources/ebay/ebay-client.js';
+import type { EbayClient, EbayItemSummary } from '../sources/ebay/ebay-client.js';
 import { itemCountry, mergeItemDetails, summaryToListing } from '../sources/ebay/normalize.js';
 import { marketValue, type SourceReader } from './market-value.js';
 import {
@@ -68,13 +68,14 @@ export async function watchScan(deps: WatchScanDeps): Promise<WatchScanSummary> 
   const usdCad = () => (rate ??= deps.usdCad ? deps.usdCad().catch(() => null) : Promise.resolve(null));
 
   const refreshed = new Set<string>();
-  let results: Awaited<ReturnType<WatchScanDeps['ebay']['searchLiveAuctions']>> = [];
+  let results: EbayItemSummary[] = [];
   try {
-    results = await deps.ebay.searchLiveAuctions({
+    const r = await deps.ebay.searchLiveAuctions({
       windowHours: settings.watchWindowHours, minBid: settings.watchMinBid, maxPages: settings.watchMaxPages,
     });
+    results = r.items;
+    if (!r.complete) log('warn', 'watch search partial', { items: r.items.length });
   } catch (err) {
-    // Still record results of auctions that ended below.
     summary.errors++;
     log('error', 'watch search failed', { err: errText(err) });
   }
