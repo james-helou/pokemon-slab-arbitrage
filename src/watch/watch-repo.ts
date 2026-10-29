@@ -98,23 +98,48 @@ export async function setMatch(
   );
 }
 
-/** First alert stores the bid, value and sources; a re-alert stores only its own bid and time. */
-export async function markAlerted(
+/**
+ * Atomically claims the alert before it is sent: true only for the caller that set it. The first alert claims a row
+ * not yet alerted and stores the bid, value and sources; a re-alert claims an alerted row not yet re-alerted and
+ * stores only its own bid and time. Overlapping passes (two deploys) therefore send once.
+ */
+export async function claimAlert(
   db: Db,
   k: WatchKey,
   a: { bid: number; value: number; sources: SourceValue[]; now: Date; realert: boolean },
-): Promise<void> {
+): Promise<boolean> {
+  if (a.realert) {
+    const { rows } = await db.query(
+      `update watch_auctions set realerted_at = $3, realerted_bid = $4
+       where source = $1 and external_id = $2 and alerted_at is not null and realerted_at is null
+       returning 1`,
+      [k.source, k.externalId, a.now, a.bid],
+    );
+    return rows.length > 0;
+  }
+  const { rows } = await db.query(
+    `update watch_auctions set alerted_at = $3, alerted_bid = $4, value_at_alert = $5, sources_at_alert = $6::jsonb
+     where source = $1 and external_id = $2 and alerted_at is null
+     returning 1`,
+    [k.source, k.externalId, a.now, a.bid, a.value, JSON.stringify(a.sources)],
+  );
+  return rows.length > 0;
+}
+
+/** Undoes a claim whose send failed, so the next pass retries. Only the claim stamped `now` is undone. */
+export async function releaseAlert(db: Db, k: WatchKey, a: { now: Date; realert: boolean }): Promise<void> {
   if (a.realert) {
     await db.query(
-      `update watch_auctions set realerted_at = $3, realerted_bid = $4 where source = $1 and external_id = $2`,
-      [k.source, k.externalId, a.now, a.bid],
+      `update watch_auctions set realerted_at = null, realerted_bid = null
+       where source = $1 and external_id = $2 and realerted_at = $3`,
+      [k.source, k.externalId, a.now],
     );
     return;
   }
   await db.query(
-    `update watch_auctions set alerted_at = $3, alerted_bid = $4, value_at_alert = $5, sources_at_alert = $6::jsonb
-     where source = $1 and external_id = $2`,
-    [k.source, k.externalId, a.now, a.bid, a.value, JSON.stringify(a.sources)],
+    `update watch_auctions set alerted_at = null, alerted_bid = null, value_at_alert = null, sources_at_alert = null
+     where source = $1 and external_id = $2 and alerted_at = $3`,
+    [k.source, k.externalId, a.now],
   );
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Db } from '../../src/db/db.js';
 import {
-  dueForFinalCheck, endedUnfinalized, finalize, markAlerted, setMatch, upsertSeen, type SeenAuction,
+  claimAlert, dueForFinalCheck, endedUnfinalized, finalize, releaseAlert, setMatch, upsertSeen, type SeenAuction,
 } from '../../src/watch/watch-repo.js';
 import { seedCards } from '../helpers/fixtures.js';
 import { createTestDb } from '../helpers/test-db.js';
@@ -56,13 +56,30 @@ describe('watch repo', () => {
     const d = await db();
     await upsertSeen(d, seen(), NOW);
     const sources = [{ name: 'ppt', value: 2000, saleCount: 5, asOf: NOW }];
-    await markAlerted(d, key(), { bid: 3000, value: 2000, sources, now: NOW, realert: false });
-    await markAlerted(d, key(), { bid: 3750, value: 2100, sources, now: at(30), realert: true });
+    expect(await claimAlert(d, key(), { bid: 3000, value: 2000, sources, now: NOW, realert: false })).toBe(true);
+    expect(await claimAlert(d, key(), { bid: 3750, value: 2100, sources, now: at(30), realert: true })).toBe(true);
     const r = (await upsertSeen(d, seen({ currentBid: 3750 }), at(31)));
     expect(r).toMatchObject({
       alertedAt: NOW, alertedBid: 3000, valueAtAlert: 2000, realertedAt: at(30), realertedBid: 3750,
     });
     expect(r.sourcesAtAlert).toEqual([{ name: 'ppt', value: 2000, saleCount: 5, asOf: NOW.toISOString() }]);
+  });
+
+  it('claims each alert once: a second claim loses, a release lets the next claim win', async () => {
+    const d = await db();
+    await upsertSeen(d, seen(), NOW);
+    const sources = [{ name: 'ppt', value: 2000, saleCount: 5, asOf: NOW }];
+    const a = (realert: boolean, now: Date) => ({ bid: 3000, value: 2000, sources, now, realert });
+    expect(await claimAlert(d, key(), a(true, NOW))).toBe(false); // no re-alert before an alert
+    expect(await claimAlert(d, key(), a(false, NOW))).toBe(true);
+    expect(await claimAlert(d, key(), a(false, at(1)))).toBe(false);
+    await releaseAlert(d, key(), { now: NOW, realert: false });
+    expect(await upsertSeen(d, seen(), at(2))).toMatchObject({ alertedAt: null, alertedBid: null, valueAtAlert: null, sourcesAtAlert: null });
+    expect(await claimAlert(d, key(), a(false, at(2)))).toBe(true);
+    expect(await claimAlert(d, key(), a(true, at(3)))).toBe(true);
+    expect(await claimAlert(d, key(), a(true, at(4)))).toBe(false);
+    await releaseAlert(d, key(), { now: at(3), realert: true });
+    expect(await upsertSeen(d, seen(), at(5))).toMatchObject({ alertedAt: at(2), realertedAt: null, realertedBid: null });
   });
 
   it('finds matched open auctions in their last minutes, and ended unfinalized ones', async () => {

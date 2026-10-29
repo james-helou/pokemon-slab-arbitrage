@@ -207,6 +207,13 @@ describe('watchScan', () => {
     expect(sent).toHaveLength(1);
   });
 
+  it('sends one alert when two passes overlap (claim before send)', async () => {
+    const { deps, sent } = await setup();
+    const [a, b] = await Promise.all([watchScan(deps), watchScan(deps)]);
+    expect(a.alerts + b.alerts).toBe(1);
+    expect(sent).toHaveLength(1);
+  });
+
   it('skips matching and alerting for an auction ending in under 3 minutes', async () => {
     const { deps, state, calls, sent } = await setup();
     state.results = [auction('A1', 3000, 5, { itemEndDate: new Date(T0.getTime() + 2 * 60_000).toISOString() })];

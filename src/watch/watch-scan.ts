@@ -15,7 +15,7 @@ import type { EbayClient, EbayItemSummary } from '../sources/ebay/ebay-client.js
 import { itemCountry, mergeItemDetails, summaryToListing } from '../sources/ebay/normalize.js';
 import { marketValue, type SourceReader } from './market-value.js';
 import {
-  dueForFinalCheck, endedUnfinalized, finalize, markAlerted, setMatch, upsertSeen, type WatchRow,
+  claimAlert, dueForFinalCheck, endedUnfinalized, finalize, releaseAlert, setMatch, upsertSeen, type WatchRow,
 } from './watch-repo.js';
 import { belowGap, decideWatch } from './watch-rule.js';
 
@@ -169,17 +169,22 @@ async function watchOne(
     endsAt: row.endsAt, value: mv.value, sources: mv.sources, gapUsd: v.gapUsd, gapPct: v.gapPct,
     realert: v.action === 'realert',
   }, { now: deps.now(), usdCad: await usdCad() });
+  // Claim first: only the pass that wins the claim sends (overlapping deploys), and a failed bookkeeping write can no
+  // longer follow a successful send.
+  const realert = v.action === 'realert';
+  const claimedAt = deps.now();
+  if (!(await claimAlert(db, row, { bid: row.currentBid, value: mv.value, sources: mv.sources, now: claimedAt, realert }))) return;
   try {
     await deps.send(payload);
   } catch (err) {
-    // Not marked: the next pass retries the alert.
+    // Released: the next pass retries the alert. A failed release is logged; the claim then stands (no duplicate).
     summary.errors++;
     deps.log('error', 'watch alert send failed', { externalId: row.externalId, err: errText(err) });
+    await releaseAlert(db, row, { now: claimedAt, realert }).catch((e: unknown) => {
+      deps.log('error', 'watch alert release failed', { externalId: row.externalId, err: errText(e) });
+    });
     return;
   }
-  await markAlerted(db, row, {
-    bid: row.currentBid, value: mv.value, sources: mv.sources, now: deps.now(), realert: v.action === 'realert',
-  });
   if (v.action === 'realert') summary.realerts++;
   else summary.alerts++;
 }
